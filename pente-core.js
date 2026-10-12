@@ -4,7 +4,7 @@
  * Todas las funciones son puras: playMove devuelve un estado nuevo.
  *
  * Reglas implementadas:
- *  - Tablero 19x19, se juega en las intersecciones.
+ *  - Tablero 19x19 (o 13x13 con opts.size), se juega en las intersecciones.
  *  - Jugador 1 (1) mueve primero, luego alternan.
  *  - Captura: solo PARES. Patrón P O O P en línea (8 direcciones) => se retiran las 2 O.
  *  - Jugar dentro de un par propio flanqueado NO es captura (jugada segura).
@@ -185,14 +185,15 @@
   }
 
   /* Notación de coordenadas: columnas A–T SIN la I (evita confundirla con el 1), filas 1–19 de arriba hacia abajo.
-   * El centro del tablero es K10. Solo definida para el tablero estándar de 19x19. */
+   * Las letras se cuentan desde la izquierda: en 19x19 el centro es K10; en 13x13 las columnas llegan hasta la N y el centro es G7. */
   var COLS = 'ABCDEFGHJKLMNOPQRST';
   function coordName(x, y) { return COLS.charAt(x) + (y + 1); }
-  function parseCoord(str) {
+  function parseCoord(str, size) {
+    size = size || 19;
     var m = /^([A-HJ-T])(\d{1,2})$/i.exec(String(str).trim());
     if (!m) return null;
     var x = COLS.indexOf(m[1].toUpperCase()), y = parseInt(m[2], 10) - 1;
-    return (y >= 0 && y < 19) ? { x: x, y: y } : null;
+    return (x < size && y >= 0 && y < size) ? { x: x, y: y } : null;
   }
 
   /** Para el duelo: cuántas victorias hacen falta para ganar un "al mejor de N". */

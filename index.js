@@ -9,7 +9,7 @@
  * y se pierde si el servidor se reinicia (esperable en el plan gratuito de Render).
  *
  * Protocolo (JSON). Cliente -> servidor:
- *   {t:'create', name, opts:{tournamentRule, exactFive}}   {t:'join', code, name}   {t:'rejoin', code, token}
+ *   {t:'create', name, opts:{tournamentRule, exactFive, size: 13|19}}   {t:'join', code, name}   {t:'rejoin', code, token}
  *   {t:'move', x, y}  {t:'resign'}  {t:'rematch'}  {t:'claimWin'}  {t:'resync'}  {t:'ping'}
  * Servidor -> cliente:
  *   {t:'joined', code, token, you}   {t:'sync', ...estado completo...}   {t:'move', x, y, n}
@@ -99,7 +99,7 @@ function createPenteServer(config) {
     if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
-    const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive };
+    const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19 };   // solo 13 o 19: nada más pasa
     const room = { code, opts, seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now() };
     freshGame(room);
     const token = newToken();

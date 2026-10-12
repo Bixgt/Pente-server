@@ -62,7 +62,7 @@ test('crear sala: código de 5 caracteres sin letras ambiguas, creador es J1', a
   assert.match(j.code, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}$/);
   assert.equal(j.you, 1); assert.ok(j.token.length >= 32);
   const s = await a.type('sync');
-  assert.deepEqual(s.opts, { tournamentRule: true, exactFive: true });
+  assert.deepEqual(s.opts, { tournamentRule: true, exactFive: true, size: 19 });
   assert.equal(s.names[1], 'Ana'); assert.equal(s.names[2], ''); assert.deepEqual(s.moves, []);
   await env.teardown();
 });
@@ -296,5 +296,28 @@ test('dos salas distintas no se mezclan', async () => {
   p1.a.send({ t: 'move', x: 9, y: 9 }); await p1.a.type('move'); await p1.b.type('move');
   assert.equal(p2.a.inbox.filter((m) => m.t === 'move').length, 0);
   assert.equal(p2.b.inbox.filter((m) => m.t === 'move').length, 0);
+  await env.teardown();
+});
+
+test('tablero 13x13: la sala lo respeta (centro G7, fuera de 13 se rechaza) y la revancha lo conserva', async () => {
+  const env = await setup();
+  const { a, b } = await pair(env, { size: 13, tournamentRule: true });
+  a.send({ t: 'move', x: 9, y: 9 });                        // en 13x13 el centro es 6,6
+  const e = await a.type('error'); assert.equal(e.detail, 'MUST_PLAY_CENTER');
+  a.send({ t: 'move', x: 6, y: 6 }); await a.type('move'); await b.type('move');
+  b.send({ t: 'move', x: 13, y: 0 });                       // fuera del tablero de 13
+  assert.equal((await b.type('error')).detail, 'OUT_OF_BOUNDS');
+  a.send({ t: 'resign' }); await a.type('over'); await b.type('over');
+  a.send({ t: 'rematch' }); b.send({ t: 'rematch' });
+  const s = await a.type('sync'); assert.equal(s.opts.size, 13);
+  await env.teardown();
+});
+
+test('tamaño de tablero inválido: se usa 19 (nadie puede pedir un tablero raro)', async () => {
+  const env = await setup();
+  for (const bad of [5, 1000, '13', -1, null, {}]) {
+    const a = await env.mk(); a.send({ t: 'create', name: 'X', opts: { size: bad } });
+    await a.type('joined'); assert.equal((await a.type('sync')).opts.size, 19);
+  }
   await env.teardown();
 });
