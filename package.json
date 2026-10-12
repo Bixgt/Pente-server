@@ -1,0 +1,18 @@
+{
+  "name": "pente-server",
+  "version": "0.1.0",
+  "description": "Servidor de salas de Pente (WebSocket). El servidor es el árbitro: valida cada jugada con el mismo núcleo de reglas que usa el cliente.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test --test-timeout=15000 test/server.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
