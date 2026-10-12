@@ -321,3 +321,91 @@ test('tamaño de tablero inválido: se usa 19 (nadie puede pedir un tablero raro
   }
   await env.teardown();
 });
+
+/* ---------- Salas públicas, listado y espectadores ---------- */
+async function listOf(c) { c.send({ t: 'list' }); return (await c.type('rooms')).rooms; }
+
+test('sala pública aparece en el listado; la privada (por defecto) no', async () => {
+  const env = await setup();
+  const a = await env.mk(), p = await env.mk(), v = await env.mk();
+  a.send({ t: 'create', name: 'Ana', opts: { public: true, size: 13 } }); const ja = await a.type('joined'); await a.type('sync');
+  p.send({ t: 'create', name: 'Priv' }); await p.type('joined'); await p.type('sync');
+  const l = await listOf(v);
+  assert.equal(l.length, 1);
+  assert.deepEqual(l[0], { code: ja.code, size: 13, tournamentRule: true, exactFive: false, names: ['Ana', ''], status: 'waiting', moves: 0, spectators: 0 });
+  const s = (await (async () => { const x = await env.mk(); x.send({ t: 'create', name: 'Z', opts: { public: 'si' } }); await x.type('joined'); return x.type('sync'); })());
+  assert.notEqual(s.public, true);                                   // solo true estricto cuenta
+  assert.equal((await listOf(v)).length, 1);
+  await env.teardown();
+});
+
+test('listado: estado playing/over, y las salas fantasma (nadie conectado) no se listan', async () => {
+  const env = await setup();
+  const { a, b, code } = await pair(env, { public: true, tournamentRule: false });
+  const v = await env.mk();
+  assert.equal((await listOf(v))[0].status, 'playing');
+  a.send({ t: 'move', x: 9, y: 9 }); await a.type('move');
+  assert.equal((await listOf(v))[0].moves, 1);
+  a.send({ t: 'resign' }); await a.type('over');
+  assert.equal((await listOf(v))[0].status, 'over');
+  await a.close(); await b.close(); await new Promise((r) => setTimeout(r, 100));
+  assert.equal((await listOf(v)).length, 0);
+  await env.teardown();
+});
+
+test('espectar: recibe estado, jugadas y final; el contador llega a todos', async () => {
+  const env = await setup();
+  const { a, b, code } = await pair(env, { public: true, tournamentRule: false });
+  const v = await env.mk();
+  v.send({ t: 'spectate', code: code.toLowerCase() });
+  const j = await v.type('joined'); assert.equal(j.spectator, true); assert.equal(j.you, 0);
+  const s = await v.type('sync'); assert.equal(s.you, 0); assert.equal(s.names[1], 'Ana'); assert.equal(s.names[2], 'Beto');
+  assert.equal((await a.type('spectators')).n, 1); assert.equal((await b.type('spectators')).n, 1);
+  a.send({ t: 'move', x: 9, y: 9 });
+  const m = await v.type('move'); assert.equal(m.x, 9);
+  b.send({ t: 'resign' });
+  const o = await v.type('over'); assert.equal(o.winner, 1);
+  assert.equal((await listOf(await env.mk()))[0].spectators, 1);
+  await v.close();
+  assert.equal((await a.type('spectators')).n, 0);
+  await env.teardown();
+});
+
+test('espectar: privada, inexistente, sin segundo jugador y estando ya en una sala', async () => {
+  const env = await setup();
+  const { code } = await pair(env, { public: false });
+  const v = await env.mk();
+  v.send({ t: 'spectate', code }); assert.equal((await v.type('error')).code, 'PRIVATE_ROOM');
+  v.send({ t: 'spectate', code: 'ZZZZZ' }); assert.equal((await v.type('error')).code, 'ROOM_NOT_FOUND');
+  const a = await env.mk(); a.send({ t: 'create', name: 'S', opts: { public: true } }); const ja = await a.type('joined'); await a.type('sync');
+  v.send({ t: 'spectate', code: ja.code }); assert.equal((await v.type('error')).code, 'NOT_STARTED');
+  const b = await env.mk(); b.send({ t: 'spectate', code: 'ZZZZZ' }); await b.type('error');
+  a.send({ t: 'spectate', code: ja.code }); assert.equal((await a.type('error')).code, 'ALREADY_IN_ROOM');
+  await env.teardown();
+});
+
+test('un espectador no puede jugar, rendirse, pedir revancha ni reclamar', async () => {
+  const env = await setup();
+  const { a, code } = await pair(env, { public: true, tournamentRule: false });
+  const v = await env.mk(); v.send({ t: 'spectate', code }); await v.type('joined'); await v.type('sync');
+  for (const m of [{ t: 'move', x: 9, y: 9 }, { t: 'resign' }, { t: 'rematch' }, { t: 'claimWin' }]) {
+    v.send(m); assert.equal((await v.type('error')).code, 'NOT_A_PLAYER', m.t);
+  }
+  a.send({ t: 'move', x: 9, y: 9 }); await a.type('move');           // la partida sigue intacta
+  v.send({ t: 'resync' }); assert.equal((await v.type('sync')).moves.length, 1);
+  await env.teardown();
+});
+
+test('la revancha también le llega al espectador, y hay tope de espectadores', async () => {
+  const env = await setup();
+  const { a, b, code } = await pair(env, { public: true, tournamentRule: false });
+  const v = await env.mk(); v.send({ t: 'spectate', code }); await v.type('joined'); await v.type('sync');
+  a.send({ t: 'resign' }); await v.type('over');
+  a.send({ t: 'rematch' }); b.send({ t: 'rematch' });
+  const s = await v.type('sync'); assert.equal(s.moves.length, 0); assert.equal(s.you, 0);
+  const extra = [];
+  for (let i = 0; i < 19; i++) { const c = await env.mk(); c.send({ t: 'spectate', code }); await c.type('joined'); extra.push(c); }
+  const last = await env.mk(); last.send({ t: 'spectate', code });
+  assert.equal((await last.type('error')).code, 'SPECTATORS_FULL');
+  await env.teardown();
+});

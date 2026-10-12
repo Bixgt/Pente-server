@@ -9,11 +9,14 @@
  * y se pierde si el servidor se reinicia (esperable en el plan gratuito de Render).
  *
  * Protocolo (JSON). Cliente -> servidor:
- *   {t:'create', name, opts:{tournamentRule, exactFive, size: 13|19}}   {t:'join', code, name}   {t:'rejoin', code, token}
+ *   {t:'create', name, opts:{tournamentRule, exactFive, size: 13|19, public: bool}}   {t:'join', code, name}   {t:'rejoin', code, token}
+ *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
  *   {t:'move', x, y}  {t:'resign'}  {t:'rematch'}  {t:'claimWin'}  {t:'resync'}  {t:'ping'}
  * Servidor -> cliente:
- *   {t:'joined', code, token, you}   {t:'sync', ...estado completo...}   {t:'move', x, y, n}
+ *   {t:'joined', code, token, you}   (espectador: {t:'joined', code, you:0, spectator:true}, sin token)
+ *   {t:'sync', ...estado completo...}   {t:'move', x, y, n}   {t:'rooms', rooms:[...]}   {t:'spectators', n}
  *   {t:'presence', connected}  {t:'over', winner, reason}  {t:'rematch', votes}  {t:'error', code, detail?}  {t:'pong'}
+ * Los espectadores reciben lo mismo que los jugadores (sync, move, over, presence) pero no pueden jugar.
  */
 'use strict';
 const http = require('http');
@@ -25,6 +28,8 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0, 1 (s
 const CODE_LENGTH = 5;
 const MAX_NAME = 18;
 const MAX_ROOMS = 500;
+const MAX_SPECTATORS = 20;                    // por sala
+const MAX_LISTED = 50;                        // salas públicas que devuelve el listado
 const FORFEIT_AFTER_MS = 60 * 1000;           // el rival puede reclamar victoria si estuvo desconectado este tiempo
 const ROOM_IDLE_TTL_MS = 2 * 60 * 60 * 1000;  // sala sin actividad: se borra
 const HEARTBEAT_MS = 25 * 1000;
@@ -68,14 +73,16 @@ function createPenteServer(config) {
   function send(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
   function seatOf(room, token) { return [1, 2].find((s) => room.seats[s] && room.seats[s].token === token) || 0; }
   function connectedMap(room) { return { 1: !!(room.seats[1] && room.seats[1].ws), 2: !!(room.seats[2] && room.seats[2].ws) }; }
-  function broadcast(room, obj) { [1, 2].forEach((s) => room.seats[s] && send(room.seats[s].ws, obj)); }
+  function toSpectators(room, obj) { room.spectators.forEach((w) => send(w, obj)); }
+  function broadcast(room, obj) { [1, 2].forEach((s) => room.seats[s] && send(room.seats[s].ws, obj)); toSpectators(room, obj); }
+  function announceSpectators(room) { broadcast(room, { t: 'spectators', n: room.spectators.size }); }
   function touch(room) { room.lastActivity = Date.now(); }
 
   function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.over = null; room.rematch = { 1: false, 2: false }; }
 
   function snapshot(room, seat) {
     return {
-      t: 'sync', code: room.code, you: seat, opts: room.opts,
+      t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, spectators: room.spectators.size,
       names: { 1: room.seats[1] ? room.seats[1].name : '', 2: room.seats[2] ? room.seats[2].name : '' },
       connected: connectedMap(room), moves: room.moves,
       over: room.over, rematch: room.rematch,
@@ -96,11 +103,12 @@ function createPenteServer(config) {
 
   /* ---------- Mensajes ---------- */
   function onCreate(ws, msg) {
+    if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
     const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19 };   // solo 13 o 19: nada más pasa
-    const room = { code, opts, seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now() };
+    const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now() };
     freshGame(room);
     const token = newToken();
     room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0 };
@@ -111,6 +119,7 @@ function createPenteServer(config) {
   }
 
   function onJoin(ws, msg) {
+    if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
     if (room.seats[2]) return send(ws, { t: 'error', code: 'ROOM_FULL' });
@@ -135,11 +144,16 @@ function createPenteServer(config) {
     send(ws, snapshot(room, seat));
     const other = room.seats[seat === 1 ? 2 : 1];
     if (other) send(other.ws, { t: 'presence', connected: connectedMap(room) });
+    toSpectators(room, { t: 'presence', connected: connectedMap(room) });
   }
 
   function attach(ws, room, seat) { ws.room = room; ws.seat = seat; room.seats[seat].ws = ws; room.seats[seat].leftAt = 0; }
 
-  function inRoom(ws) { if (!ws.room || !ws.seat) { send(ws, { t: 'error', code: 'NOT_IN_ROOM' }); return null; } return ws.room; }
+  function inRoom(ws) {
+    if (ws.spectator) { send(ws, { t: 'error', code: 'NOT_A_PLAYER' }); return null; }
+    if (!ws.room || !ws.seat) { send(ws, { t: 'error', code: 'NOT_IN_ROOM' }); return null; }
+    return ws.room;
+  }
 
   function onMove(ws, msg) {
     const room = inRoom(ws); if (!room) return;
@@ -175,12 +189,44 @@ function createPenteServer(config) {
       if (a.ws) a.ws.seat = 2; if (b.ws) b.ws.seat = 1;
       freshGame(room);
       [1, 2].forEach((s) => send(room.seats[s].ws, snapshot(room, s)));
+      toSpectators(room, snapshot(room, 0));
     } else broadcast(room, { t: 'rematch', votes: room.rematch });
+  }
+
+  /* ---------- Salas públicas y espectadores ---------- */
+  function publicList() {
+    const out = [];
+    rooms.forEach((room) => {
+      if (!room.public) return;
+      const c = connectedMap(room);
+      if (!c[1] && !c[2]) return;                                   // sala fantasma: nadie conectado
+      out.push({
+        code: room.code, size: room.opts.size, tournamentRule: room.opts.tournamentRule, exactFive: room.opts.exactFive,
+        names: [room.seats[1] ? room.seats[1].name : '', room.seats[2] ? room.seats[2].name : ''],
+        status: !room.seats[2] ? 'waiting' : gameOverNow(room) ? 'over' : 'playing',
+        moves: room.moves.length, spectators: room.spectators.size, at: room.lastActivity
+      });
+    });
+    out.sort((a, b) => b.at - a.at);
+    return out.slice(0, MAX_LISTED).map((r) => { delete r.at; return r; });
+  }
+
+  function onSpectate(ws, msg) {
+    if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
+    const room = rooms.get(String(msg.code || '').toUpperCase().trim());
+    if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
+    if (!room.public) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores
+    if (!room.seats[2]) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
+    if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
+    ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);
+    send(ws, { t: 'joined', code: room.code, you: 0, spectator: true });
+    send(ws, snapshot(room, 0));
+    announceSpectators(room);
   }
 
   /* ---------- Conexiones ---------- */
   wss.on('connection', (ws) => {
-    ws.isAlive = true; ws.room = null; ws.seat = 0; ws.bucket = { n: 0, t: Date.now() };
+    ws.isAlive = true; ws.room = null; ws.seat = 0; ws.spectator = false; ws.bucket = { n: 0, t: Date.now() };
     ws.on('pong', () => { ws.isAlive = true; });
     ws.on('message', (data) => {
       ws.isAlive = true;
@@ -193,22 +239,26 @@ function createPenteServer(config) {
         case 'create': return onCreate(ws, msg);
         case 'join': return onJoin(ws, msg);
         case 'rejoin': return onRejoin(ws, msg);
+        case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
+        case 'spectate': return onSpectate(ws, msg);
         case 'move': return onMove(ws, msg);
         case 'resign': return onResign(ws);
         case 'rematch': return onRematch(ws);
         case 'claimWin': return onClaimWin(ws);
-        case 'resync': { const r = inRoom(ws); return r && send(ws, snapshot(r, ws.seat)); }
+        case 'resync': { if (!ws.room) return send(ws, { t: 'error', code: 'NOT_IN_ROOM' }); return send(ws, snapshot(ws.room, ws.seat)); }
         case 'ping': return send(ws, { t: 'pong' });
         default: return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       }
     });
     ws.on('close', () => {
       const room = ws.room; if (!room) return;
+      if (ws.spectator) { room.spectators.delete(ws); announceSpectators(room); return; }
       const p = room.seats[ws.seat];
       if (p && p.ws === ws) {                         // si ya lo reemplazó otra conexión, no se marca como ido
         p.ws = null; p.leftAt = Date.now();
         const other = room.seats[ws.seat === 1 ? 2 : 1];
         if (other) send(other.ws, { t: 'presence', connected: connectedMap(room) });
+        toSpectators(room, { t: 'presence', connected: connectedMap(room) });
       }
     });
     ws.on('error', () => {});

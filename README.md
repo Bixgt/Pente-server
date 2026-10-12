@@ -7,16 +7,17 @@
 - Reconexión: cada jugador recibe un token secreto y puede volver a su lugar si se cae.
 - Si un jugador queda desconectado 60 s, el rival puede **reclamar la victoria**. También se puede **abandonar**.
 - Límites: mensajes de 2 KB, 12 mensajes por segundo por conexión, 500 salas, salas inactivas se borran a las 2 h.
+- **Salas públicas y espectadores:** `create` acepta `public:true` (por defecto privada). `list` devuelve las públicas con alguien conectado (máx. 50); `spectate {code}` permite mirar una sala pública que ya tiene dos jugadores (máx. 20 espectadores; las privadas devuelven `PRIVATE_ROOM`). Los espectadores reciben jugadas, final y revancha, y no pueden jugar, rendirse ni pedir revancha (`NOT_A_PLAYER`).
 - `GET /health` responde `{"ok":true}`: sirve para despertar al servidor cuando el plan gratuito lo durmió.
 
 ## Qué NO hace (todavía)
-Cuentas, ranking, historial, torneos, espectadores, reloj de partida. Todo vive **en memoria**: si el servidor se reinicia o se duerme mucho tiempo, las salas se pierden. Para guardar datos hace falta una base de datos (otra decisión).
+Cuentas, ranking, historial, torneos, reloj de partida, chat. Todo vive **en memoria**: si el servidor se reinicia o se duerme mucho tiempo, las salas se pierden. Para guardar datos hace falta una base de datos (otra decisión).
 
 ## Probarlo en tu compu
 ```
 npm install
 npm start          # escucha en el puerto 8787 (o el de la variable PORT)
-npm test           # 23 tests con clientes simulados
+npm test           # 31 tests con clientes simulados
 ```
 
 ## Publicarlo (Render, plan gratuito)
