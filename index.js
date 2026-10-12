@@ -34,6 +34,8 @@ const MAX_LISTED = 50;                        // salas públicas que devuelve el
 const FORFEIT_AFTER_MS = 60 * 1000;           // el rival puede reclamar victoria si estuvo desconectado este tiempo
 const ROOM_IDLE_TTL_MS = 2 * 60 * 60 * 1000;  // sala sin actividad: se borra
 const HEARTBEAT_MS = 25 * 1000;
+const TOTAL_MS = 10 * 60 * 1000;             // reloj: tiempo total por jugador
+const TURN_MS = 60 * 1000;                   // reloj: tiempo máximo por jugada
 const MAX_MSGS_PER_SEC = 12;
 const MAX_CHAT = 200;                         // caracteres por mensaje de chat
 const CHAT_HISTORY = 50;                      // mensajes que se recuerdan por sala (para el que entra tarde)
@@ -60,6 +62,7 @@ function createPenteServer(config) {
   config = config || {};
   const allowedOrigins = (config.allowedOrigins || []).filter(Boolean);
   const forfeitAfterMs = config.forfeitAfterMs != null ? config.forfeitAfterMs : FORFEIT_AFTER_MS;
+  const totalMs = config.totalMs != null ? config.totalMs : TOTAL_MS, turnMs = config.turnMs != null ? config.turnMs : TURN_MS;
   const rooms = new Map();
 
   const httpServer = http.createServer((req, res) => {
@@ -85,14 +88,43 @@ function createPenteServer(config) {
   function announceSpectators(room) { broadcast(room, { t: 'spectators', n: room.spectators.size }); }
   function touch(room) { room.lastActivity = Date.now(); }
 
-  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.over = null; room.rematch = { 1: false, 2: false }; }
+  /* ---------- Reloj (lo manda el servidor: es el árbitro) ----------
+   * Cada jugador tiene totalMs para toda la partida y turnMs por jugada. Si se acaba cualquiera de los dos, pierde.
+   * El reloj arranca cuando entra el segundo jugador (y en cada revancha). Los clientes solo lo muestran. */
+  function clockStop(room) { if (room.clockTimer) { clearTimeout(room.clockTimer); room.clockTimer = null; } }
+  function clockLimit(room) { const c = room.clock; return Math.min(c.rem[c.current], turnMs); }
+  function clockStart(room) {
+    clockStop(room); room.clock = null;
+    if (!room.opts.timer) return;
+    room.clock = { rem: { 1: totalMs, 2: totalMs }, current: 1, since: Date.now() };
+    clockArm(room);
+  }
+  function clockArm(room) {
+    clockStop(room); const c = room.clock; if (!c || gameOverNow(room)) return;
+    const wait = Math.max(0, clockLimit(room) - (Date.now() - c.since)) + 30;     // un pelín de margen para el viaje de la jugada
+    room.clockTimer = setTimeout(() => clockExpire(room), wait); if (room.clockTimer.unref) room.clockTimer.unref();
+  }
+  function clockExpire(room) {
+    room.clockTimer = null; const c = room.clock; if (!c || gameOverNow(room)) return;
+    if (Date.now() - c.since < clockLimit(room)) return clockArm(room);
+    c.rem[c.current] = Math.max(0, c.rem[c.current] - (Date.now() - c.since));
+    finish(room, c.current === 1 ? 2 : 1, 'timeout');
+  }
+  function clockInfo(room) {            // valores "en vivo" al momento de enviar (los clientes cuentan desde ahí, sin depender de relojes ajenos)
+    const c = room.clock; if (!c) return { on: false };
+    const over = gameOverNow(room), used = over ? 0 : Date.now() - c.since;
+    const rem = { 1: c.rem[1], 2: c.rem[2] }; if (!over) rem[c.current] = Math.max(0, rem[c.current] - used);
+    return { on: true, total: totalMs, turnMs, rem, current: over ? 0 : c.current, turnLeft: over ? turnMs : Math.max(0, turnMs - used) };
+  }
+
+  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.over = null; room.rematch = { 1: false, 2: false }; clockStop(room); room.clock = null; }
 
   function snapshot(room, seat) {
     return {
       t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, spectators: room.spectators.size,
       names: { 1: room.seats[1] ? room.seats[1].name : '', 2: room.seats[2] ? room.seats[2].name : '' },
       connected: connectedMap(room), moves: room.moves,
-      over: room.over, rematch: room.rematch,
+      over: room.over, rematch: room.rematch, clock: clockInfo(room),
       disconnectedFor: disconnectedFor(room)
     };
   }
@@ -104,8 +136,8 @@ function createPenteServer(config) {
   function gameOverNow(room) { return !!room.over || room.game.status !== 'playing'; }
 
   function finish(room, winner, reason) {
-    room.over = { winner, reason };
-    broadcast(room, { t: 'over', winner, reason });
+    room.over = { winner, reason }; clockStop(room);
+    broadcast(room, { t: 'over', winner, reason, clock: clockInfo(room) });
   }
 
   /* ---------- Mensajes ---------- */
@@ -114,7 +146,7 @@ function createPenteServer(config) {
     if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
-    const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19 };   // solo 13 o 19: nada más pasa
+    const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.timer !== false };   // solo 13 o 19: nada más pasa
     const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
@@ -133,6 +165,7 @@ function createPenteServer(config) {
     const token = newToken();
     room.seats[2] = { name: cleanName(msg.name, 'Jugador 2'), token, ws: null, leftAt: 0 };
     attach(ws, room, 2); touch(room);
+    clockStart(room);                                  // ya hay dos jugadores: corre el reloj del primero
     send(ws, { t: 'joined', code: room.code, token, you: 2 });
     // el creador recibe la foto completa (ahora hay rival); el que entra también
     send(ws, snapshot(room, 2)); sendChatLog(ws, room);
@@ -168,8 +201,16 @@ function createPenteServer(config) {
     if (gameOverNow(room)) return send(ws, { t: 'error', code: P.ERR.GAME_OVER });
     const r = P.playMove(room.game, msg.x, msg.y, ws.seat);   // el núcleo valida turno, límites, ocupación y reglas
     if (!r.ok) return send(ws, { t: 'error', code: 'ILLEGAL', detail: r.error });
+    const c = room.clock;
+    if (c && ws.seat === c.current) {                          // ¿llegó a tiempo? (si el temporizador todavía no saltó, se decide acá)
+      const used = Date.now() - c.since;
+      if (used > clockLimit(room) + 150) { c.rem[c.current] = Math.max(0, c.rem[c.current] - used); return finish(room, ws.seat === 1 ? 2 : 1, 'timeout'); }
+      c.rem[c.current] = Math.max(0, c.rem[c.current] - used);
+    }
     room.game = r.state; room.moves.push([msg.x, msg.y]); touch(room);
-    broadcast(room, { t: 'move', x: msg.x, y: msg.y, n: room.moves.length });
+    if (c) { c.current = room.game.current; c.since = Date.now(); }
+    if (room.game.status === 'playing') clockArm(room);
+    broadcast(room, { t: 'move', x: msg.x, y: msg.y, n: room.moves.length, clock: clockInfo(room) });
     if (room.game.status !== 'playing') finish(room, room.game.winner, room.game.status === 'draw' ? 'draw' : 'game');
   }
 
@@ -194,7 +235,7 @@ function createPenteServer(config) {
       const a = room.seats[1], b = room.seats[2];
       room.seats[1] = b; room.seats[2] = a;
       if (a.ws) a.ws.seat = 2; if (b.ws) b.ws.seat = 1;
-      freshGame(room);
+      freshGame(room); clockStart(room);
       [1, 2].forEach((s) => send(room.seats[s].ws, snapshot(room, s)));
       toSpectators(room, snapshot(room, 0));
     } else broadcast(room, { t: 'rematch', votes: room.rematch });

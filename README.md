@@ -9,6 +9,7 @@
 - Límites: mensajes de 2 KB, 12 mensajes por segundo por conexión, 500 salas, salas inactivas se borran a las 2 h.
 - **Salas públicas y espectadores:** `create` acepta `public:true` (por defecto privada). `list` devuelve las públicas con alguien conectado (máx. 50); `spectate {code}` permite mirar una sala pública que ya tiene dos jugadores (máx. 20 espectadores; las privadas devuelven `PRIVATE_ROOM`). Los espectadores reciben jugadas, final y revancha, y no pueden jugar, rendirse ni pedir revancha (`NOT_A_PLAYER`).
 - **Chat:** `{t:'chat', text}` lo reciben jugadores y espectadores (`{t:'chat', id, name, seat, text, n}`); máx. 200 caracteres, 1 mensaje cada 0,7 s (`CHAT_RATE`), historial de 50 mensajes (`chatlog`) para quien entra o reconecta. Sin moderación: el silenciado es del lado del cliente.
+- **Reloj:** `create` acepta `timer` (por defecto `true`): 10 min en total por jugador y 1 min por jugada; si se acaba cualquiera, el servidor manda `over` con `reason:'timeout'`. Arranca al entrar el segundo jugador y en cada revancha; `sync`, `move` y `over` traen `clock {on,total,turnMs,rem,current,turnLeft}` (valores en vivo al enviar). Configurable con `createPenteServer({totalMs, turnMs})`.
 - `GET /health` responde `{"ok":true}`: sirve para despertar al servidor cuando el plan gratuito lo durmió.
 
 ## Qué NO hace (todavía)
