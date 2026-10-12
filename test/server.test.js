@@ -62,7 +62,7 @@ test('crear sala: código de 5 caracteres sin letras ambiguas, creador es J1', a
   assert.match(j.code, /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}$/);
   assert.equal(j.you, 1); assert.ok(j.token.length >= 32);
   const s = await a.type('sync');
-  assert.deepEqual(s.opts, { tournamentRule: true, exactFive: true, size: 19 });
+  assert.deepEqual(s.opts, { tournamentRule: true, exactFive: true, size: 19, timer: true });
   assert.equal(s.names[1], 'Ana'); assert.equal(s.names[2], ''); assert.deepEqual(s.moves, []);
   await env.teardown();
 });
@@ -444,5 +444,77 @@ test('chat: quien entra tarde recibe el historial; el espectador y el que recone
   const log = await v.type('chatlog'); assert.deepEqual(log.msgs.map((m) => m.text), ['uno', 'dos']);
   await a.close(); const a2 = await env.mk(); a2.send({ t: 'rejoin', code, token: ja.token }); await a2.type('joined'); await a2.type('sync');
   assert.equal((await a2.type('chatlog')).msgs.length, 2);
+  await env.teardown();
+});
+
+/* ---------- Reloj ---------- */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('reloj: por defecto está activo y el sync trae 10 min por jugador y 1 min por jugada', async () => {
+  const env = await setup(); const { a } = await pair(env);
+  a.send({ t: 'resync' }); const s = await a.type('sync');
+  assert.equal(s.opts.timer, true); assert.equal(s.clock.on, true);
+  assert.equal(s.clock.total, 600000); assert.equal(s.clock.turnMs, 60000); assert.equal(s.clock.current, 1);
+  assert.ok(s.clock.rem[1] <= 600000 && s.clock.rem[2] === 600000);
+  await env.teardown();
+});
+
+test('reloj: si se acaba el minuto de la jugada, pierde quien tenía el turno', async () => {
+  const env = await setup({ turnMs: 250 }); const { a, b } = await pair(env);
+  const o = await a.type('over', 1500);
+  assert.equal(o.reason, 'timeout'); assert.equal(o.winner, 2);
+  assert.equal((await b.type('over')).winner, 2);
+  a.send({ t: 'move', x: 9, y: 9 }); const e = await a.type('error'); assert.equal(e.code, P.ERR.GAME_OVER);
+  await env.teardown();
+});
+
+test('reloj: jugar a tiempo reinicia el minuto y pasa el turno al otro', async () => {
+  const env = await setup({ turnMs: 400 }); const { a, b } = await pair(env);
+  await sleep(150); a.send({ t: 'move', x: 9, y: 9 });
+  const m = await a.type('move'); assert.equal(m.clock.current, 2); assert.ok(m.clock.turnLeft > 300);
+  await b.type('move');
+  await sleep(250); b.send({ t: 'move', x: 5, y: 5 }); await a.type('move');   // 250 < 400: sigue la partida
+  await sleep(100);
+  assert.ok(!a.inbox.some((x) => x.t === 'over'));
+  const o = await a.type('over', 1500); assert.equal(o.reason, 'timeout'); assert.equal(o.winner, 2);   // J1 no jugó a tiempo
+  await env.teardown();
+});
+
+test('reloj: el tiempo total también cuenta (se acumula entre jugadas)', async () => {
+  const env = await setup({ totalMs: 500, turnMs: 400 }); const { a, b } = await pair(env);
+  await sleep(300); a.send({ t: 'move', x: 9, y: 9 }); await a.type('move'); await b.type('move');
+  await sleep(300); b.send({ t: 'move', x: 5, y: 5 }); await a.type('move'); await b.type('move');
+  await sleep(300);                                  // J1 ya gastó 300 + 300 > 500 de total
+  const o = await a.type('over', 1500); assert.equal(o.reason, 'timeout'); assert.equal(o.winner, 2);
+  assert.equal(o.clock.rem[1], 0);
+  await env.teardown();
+});
+
+test('reloj: se puede desactivar al crear la sala y entonces no hay límite', async () => {
+  const env = await setup({ turnMs: 150 }); const { a } = await pair(env, { timer: false });
+  await sleep(400); assert.ok(!a.inbox.some((x) => x.t === 'over'));
+  a.send({ t: 'resync' }); const s = await a.type('sync'); assert.equal(s.clock.on, false); assert.equal(s.opts.timer, false);
+  await env.teardown();
+});
+
+test('reloj: la revancha lo reinicia y los espectadores también lo reciben', async () => {
+  const env = await setup({ turnMs: 300 });
+  const a = await env.mk(), b = await env.mk(), sp = await env.mk();
+  a.send({ t: 'create', name: 'Ana', opts: { tournamentRule: false, public: true } });
+  const ja = await a.type('joined'); await a.type('sync');
+  b.send({ t: 'join', code: ja.code, name: 'Beto' }); await b.type('joined'); await b.type('sync'); await a.type('sync');
+  sp.send({ t: 'spectate', code: ja.code }); await sp.type('joined'); const ss = await sp.type('sync'); assert.equal(ss.clock.on, true);
+  await a.type('over', 1500);
+  a.send({ t: 'rematch' }); b.send({ t: 'rematch' });
+  const s2 = await a.type('sync'); assert.equal(s2.clock.on, true); assert.equal(s2.clock.current, 1); assert.ok(s2.clock.rem[1] > 500000);
+  assert.equal(s2.over, null);
+  await env.teardown();
+});
+
+test('reloj: no corre mientras la sala espera rival', async () => {
+  const env = await setup({ turnMs: 100 }); const a = await env.mk();
+  a.send({ t: 'create', name: 'Ana', opts: {} }); await a.type('joined'); const s = await a.type('sync');
+  assert.equal(s.clock.on, false);
+  await sleep(300); assert.ok(!a.inbox.some((x) => x.t === 'over'));
   await env.teardown();
 });
