@@ -1,0 +1,1585 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14161b">
+<title>Pente</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pente">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+:root {
+  --bg: #14161b;
+  --panel: #1d2027;
+  --panel-2: #262a33;
+  --text: #eef0f4;
+  --muted: #9aa1ad;
+  --accent: #e8b04a;
+  --p1: #111;
+  --p2: #f4f1ea;
+  --danger: #e5604f;
+  --radius: 14px;
+  --gutter: 16px;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+.app { display: flex; flex-direction: column; min-height: 100%; max-width: 1000px; margin: 0 auto; padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom)); gap: 12px; }
+
+.hud { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.player { background: var(--panel); border-radius: var(--radius); padding: 10px 12px; border: 2px solid transparent; transition: border-color .15s, background .15s; min-width: 0; }
+.player.active { border-color: var(--accent); background: var(--panel-2); }
+.player .row { display: flex; align-items: center; gap: 8px; }
+.stone-ico { width: 22px; height: 22px; border-radius: 50%; flex: none; box-shadow: inset 0 -2px 3px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.5); }
+.stone-ico.s1 { background: radial-gradient(circle at 35% 30%, var(--s1a), var(--s1b) 75%); }
+.stone-ico.s2 { background: radial-gradient(circle at 35% 30%, var(--s2a), var(--s2b) 75%); }
+.player .name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player .caps { margin-top: 8px; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.pip { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--muted); }
+.pip.on { background: var(--accent); border-color: var(--accent); }
+
+/* Reserva dos renglones siempre: si el aviso se hace largo, el tablero NO se mueve (con el dedo encima sería un desastre). */
+.status { text-align: center; font-weight: 600; min-height: 2.8em; display: flex; align-items: center; justify-content: center; line-height: 1.35; }
+.status .toast { color: var(--accent); }
+
+.board-wrap { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; min-height: 0; }
+#board { display: block; width: min(100%, calc(100vh - 225px), 900px); aspect-ratio: 1 / 1; max-width: 100%; border-radius: 10px; touch-action: none; box-shadow: var(--board-shadow, 0 10px 30px rgba(0,0,0,.45)); }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; min-height: 48px; }
+.actions .btn { white-space: nowrap; }
+.btn { background: var(--panel-2); border: 1px solid #343a46; border-radius: 12px; padding: 12px 18px; min-height: 48px; font-weight: 600; }
+.btn:hover { background: #2f3440; }
+.btn.primary { background: var(--accent); color: #1a1405; border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.07); }
+.btn:focus-visible, input:focus-visible { outline: 3px solid #79b8ff; outline-offset: 2px; }
+
+.overlay { position: fixed; inset: 0; background: rgba(8,9,12,.72); display: none; align-items: center; justify-content: center; padding: var(--gutter); z-index: 10; }
+.overlay.open { display: flex; }
+.modal { background: var(--panel); border-radius: 18px; padding: 22px; width: min(100%, 440px); max-height: 92vh; overflow: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
+.modal h1, .modal h2 { margin: 0 0 6px; }
+.modal p.sub { margin: 0 0 16px; color: var(--muted); }
+.field { margin: 12px 0; }
+.field label.lbl { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.field input[type=text] { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #343a46; background: var(--bg); color: var(--text); font: inherit; }
+.check { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0; }
+.check input { width: 22px; height: 22px; margin-top: 2px; flex: none; accent-color: var(--accent); }
+.check small { display: block; color: var(--muted); margin-top: 2px; }
+.modal .btns { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.rules ol { padding-left: 20px; line-height: 1.5; color: #d6dae2; }
+.endtitle { font-size: 20px; font-weight: 800; margin: 0 0 14px; }
+
+@media (max-width: 520px) {
+  .app { padding: 8px 6px calc(8px + env(safe-area-inset-bottom)); gap: 8px; }
+  #board { border-radius: 6px; }
+  .player { padding: 8px 10px; }
+  #board { width: min(100%, calc(100vh - 225px)); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* Selector de tablero */
+.themes { display: flex; gap: 10px; }
+.theme-opt { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 8px; min-height: 48px; background: var(--bg); border: 2px solid #343a46; border-radius: 12px; font-weight: 600; }
+.theme-opt[aria-pressed="true"] { border-color: var(--accent); }
+.theme-opt .swatch { position: relative; width: 100%; height: 44px; border-radius: 8px; display: block; overflow: hidden; }
+.theme-opt .swatch i { position: absolute; top: 12px; width: 20px; height: 20px; border-radius: 50%; }
+.theme-opt .swatch i:nth-child(1) { left: 28%; }
+.theme-opt .swatch i:nth-child(2) { left: 52%; }
+.btn[hidden] { display: none; }
+
+/* Online */
+.player.offline { opacity: .55; }
+.hint { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.or { text-align: center; color: var(--muted); margin: 18px 0 4px; font-size: 13px; }
+.field input.code-input { text-align: center; letter-spacing: .35em; font-weight: 800; font-size: 20px; text-transform: uppercase; }
+.online-msg { min-height: 1.4em; margin: 12px 0 0; color: var(--accent); font-size: 14px; text-align: center; }
+.roomcode { text-align: center; font-size: 40px; font-weight: 800; letter-spacing: .3em; padding: 14px 0 14px .3em; margin: 6px 0 4px; background: var(--bg); border-radius: 12px; border: 2px dashed #343a46; user-select: all; }
+
+/* Tamaño del tablero */
+.seg { display: flex; gap: 8px; }
+.seg-opt { flex: 1; min-height: 48px; background: var(--bg); border: 2px solid #343a46; border-radius: 12px; font-weight: 700; }
+.seg-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--panel-2); }
+#btnConfirm { flex: 1 1 auto; max-width: 260px; }
+@media (max-width: 520px) { .actions .btn { padding: 12px 12px; } }
+
+/* Configuración */
+.modal.settings { width: min(100%, 480px); }
+.tabs { display: flex; gap: 6px; margin: 12px 0 8px; }
+.tab { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 8px 4px; font-size: 14px; background: var(--bg); border: 2px solid #343a46; border-radius: 12px; font-weight: 700; white-space: nowrap; }
+.tab[aria-selected="true"] { border-color: var(--accent); background: var(--panel-2); }
+.tabpanel { padding-top: 4px; }
+.tabpanel[hidden] { display: none; }
+input[type=range] { width: 100%; accent-color: var(--accent); min-height: 32px; }
+.seg-opt { padding: 8px; }
+@media (max-width: 400px) { .modal.settings { padding: 18px 14px; } .tab { font-size: 13px; padding: 8px 2px; } }
+@media (max-width: 340px) { .tab { font-size: 12px; } }
+@media (max-width: 340px) { .tabs { gap: 4px; } .tab { padding: 8px 0; font-size: 12px; } .modal.settings { padding: 16px 10px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="hud">
+    <div class="player" id="player1">
+      <div class="row"><span class="stone-ico s1"></span><span class="name" id="pname1"></span></div>
+      <div class="caps" id="caps1" aria-label="Pares capturados"></div>
+    </div>
+    <div class="player" id="player2">
+      <div class="row"><span class="stone-ico s2"></span><span class="name" id="pname2"></span></div>
+      <div class="caps" id="caps2" aria-label="Pares capturados"></div>
+    </div>
+  </div>
+
+  <div class="status" id="status" role="status" aria-live="polite"></div>
+
+  <div class="board-wrap"><canvas id="board" tabindex="0" role="application"></canvas></div>
+
+  <div class="actions">
+    <button class="btn" id="btnMenu" data-i18n="hud.menu"></button>
+    <button class="btn" id="btnRestart" data-i18n="hud.restart"></button>
+    <button class="btn" id="btnClaim" hidden data-i18n="online.claim"></button>
+    <button class="btn primary" id="btnConfirm" hidden data-i18n="hud.confirm"></button>
+  </div>
+</div>
+
+<!-- Menú -->
+<div class="overlay" id="menuOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h1 data-i18n="menu.title"></h1>
+    <p class="sub" data-i18n="menu.subtitle"></p>
+    <div class="field"><label class="lbl" for="name1" data-i18n="menu.p1"></label><input type="text" id="name1" maxlength="18" autocomplete="off"></div>
+    <div class="field"><label class="lbl" for="name2" data-i18n="menu.p2"></label><input type="text" id="name2" maxlength="18" autocomplete="off"></div>
+    <div class="field"><span class="lbl" data-i18n="menu.size"></span><div class="seg" id="sizePicker" role="group"><button type="button" class="seg-opt" data-size="13" data-i18n="menu.size13"></button><button type="button" class="seg-opt" data-size="19" data-i18n="menu.size19"></button></div><p class="hint" data-i18n="menu.sizeHint"></p></div>
+    <label class="check"><input type="checkbox" id="optTournament" checked><span><span data-i18n="menu.tournamentRule"></span><small data-i18n="menu.tournamentRuleHint"></small></span></label>
+    <label class="check"><input type="checkbox" id="optExact"><span><span data-i18n="menu.exactFive"></span><small data-i18n="menu.exactFiveHint"></small></span></label>
+    <div class="btns">
+      <button class="btn primary" id="btnResume" hidden data-i18n="menu.resume"></button>
+      <button class="btn primary" id="btnOnline" data-i18n="menu.online"></button>
+      <button class="btn" id="btnStart" data-i18n="menu.start"></button>
+      <button class="btn" id="btnSettings" data-i18n="menu.settings"></button>
+      <button class="btn" id="btnRules" data-i18n="menu.rules"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Configuración -->
+<div class="overlay" id="settingsOverlay">
+  <div class="modal settings" role="dialog" aria-modal="true" aria-labelledby="cfgTitle">
+    <h2 id="cfgTitle" data-i18n="cfg.title"></h2>
+    <div class="tabs" role="tablist" id="cfgTabs">
+      <button type="button" role="tab" class="tab" data-tab="sound" data-i18n="cfg.tab.sound"></button>
+      <button type="button" role="tab" class="tab" data-tab="graphics" data-i18n="cfg.tab.graphics"></button>
+      <button type="button" role="tab" class="tab" data-tab="controls" data-i18n="cfg.tab.controls"></button>
+      <button type="button" role="tab" class="tab" data-tab="game" data-i18n="cfg.tab.game"></button>
+    </div>
+
+    <section class="tabpanel" id="tab-sound" role="tabpanel">
+      <label class="check"><input type="checkbox" id="optSound"><span><span data-i18n="cfg.sound"></span><small data-i18n="cfg.soundHint"></small></span></label>
+      <div class="field"><label class="lbl" for="cfgVolume"><span data-i18n="cfg.volume"></span> <b id="cfgVolumeVal"></b></label><input type="range" id="cfgVolume" min="0" max="100" step="5"></div>
+      <label class="check"><input type="checkbox" id="optVibrate"><span><span data-i18n="cfg.vibrate"></span><small data-i18n="cfg.vibrateHint"></small></span></label>
+    </section>
+
+    <section class="tabpanel" id="tab-graphics" role="tabpanel" hidden>
+      <div class="field"><span class="lbl" data-i18n="cfg.theme"></span><div class="themes" id="themePicker" role="group"></div></div>
+      <div class="field"><span class="lbl" data-i18n="cfg.stoneSize"></span>
+        <div class="seg" data-cfg="stoneSize" role="group"><button type="button" class="seg-opt" data-val="small" data-i18n="cfg.size.small"></button><button type="button" class="seg-opt" data-val="normal" data-i18n="cfg.size.normal"></button><button type="button" class="seg-opt" data-val="large" data-i18n="cfg.size.large"></button></div></div>
+      <label class="check"><input type="checkbox" data-cfg="coords"><span><span data-i18n="cfg.coords"></span><small data-i18n="cfg.coordsHint"></small></span></label>
+      <label class="check"><input type="checkbox" data-cfg="lastMove"><span><span data-i18n="cfg.lastMove"></span></span></label>
+      <label class="check"><input type="checkbox" data-cfg="anim"><span><span data-i18n="cfg.anim"></span><small data-i18n="cfg.animHint"></small></span></label>
+    </section>
+
+    <section class="tabpanel" id="tab-controls" role="tabpanel" hidden>
+      <div class="field"><span class="lbl" data-i18n="cfg.confirm"></span>
+        <div class="seg" data-cfg="confirm" role="group"><button type="button" class="seg-opt" data-val="button" data-i18n="cfg.confirm.button"></button><button type="button" class="seg-opt" data-val="double" data-i18n="cfg.confirm.double"></button><button type="button" class="seg-opt" data-val="none" data-i18n="cfg.confirm.none"></button></div>
+        <p class="hint" id="confirmHint"></p><p class="hint" data-i18n="cfg.confirmNote"></p></div>
+      <div class="field"><span class="lbl" data-i18n="cfg.lift"></span>
+        <div class="seg" data-cfg="lift" role="group"><button type="button" class="seg-opt" data-val="low" data-i18n="cfg.lift.low"></button><button type="button" class="seg-opt" data-val="mid" data-i18n="cfg.lift.mid"></button><button type="button" class="seg-opt" data-val="high" data-i18n="cfg.lift.high"></button></div>
+        <p class="hint" data-i18n="cfg.liftHint"></p></div>
+      <label class="check"><input type="checkbox" data-cfg="guides"><span><span data-i18n="cfg.guides"></span></span></label>
+    </section>
+
+    <section class="tabpanel" id="tab-game" role="tabpanel" hidden>
+      <label class="check"><input type="checkbox" data-cfg="zone"><span><span data-i18n="cfg.zone"></span><small data-i18n="cfg.zoneHint"></small></span></label>
+      <div class="btns"><button type="button" class="btn" id="btnCfgReset" data-i18n="cfg.reset"></button></div>
+    </section>
+
+    <p class="hint" data-i18n="cfg.hintSaved"></p>
+    <div class="btns"><button class="btn primary" id="btnSettingsBack" data-i18n="menu.back"></button></div>
+  </div>
+</div>
+
+<!-- Online: crear o unirse -->
+<div class="overlay" id="onlineOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 data-i18n="online.title"></h2>
+    <p class="sub" data-i18n="online.sub"></p>
+    <div class="field"><label class="lbl" for="onName" data-i18n="online.yourName"></label><input type="text" id="onName" maxlength="18" autocomplete="off"></div>
+    <div class="btns"><button class="btn primary" id="btnCreateRoom" data-i18n="online.create"></button></div>
+    <p class="hint" data-i18n="online.createHint"></p>
+    <div class="or" data-i18n="online.or"></div>
+    <div class="field"><label class="lbl" for="onCode" data-i18n="online.code"></label><input type="text" id="onCode" class="code-input" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false"></div>
+    <div class="btns">
+      <button class="btn primary" id="btnJoinRoom" data-i18n="online.join"></button>
+      <button class="btn" id="btnOnlineBack" data-i18n="menu.back"></button>
+    </div>
+    <p class="online-msg" id="onlineMsg" role="status" aria-live="polite"></p>
+  </div>
+</div>
+
+<!-- Online: esperando al rival -->
+<div class="overlay" id="waitOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 data-i18n="online.waitTitle"></h2>
+    <p class="sub" data-i18n="online.waitSub"></p>
+    <div class="roomcode" id="roomCode" aria-label="Código de sala"></div>
+    <div class="btns">
+      <button class="btn primary" id="btnCopyLink" data-i18n="online.copyLink"></button>
+      <button class="btn" id="btnShare" hidden data-i18n="online.share"></button>
+      <button class="btn" id="btnWaitCancel" data-i18n="online.cancel"></button>
+    </div>
+    <p class="online-msg" id="waitMsg" role="status" aria-live="polite"></p>
+  </div>
+</div>
+
+<!-- Reglas -->
+<div class="overlay" id="rulesOverlay">
+  <div class="modal rules" role="dialog" aria-modal="true">
+    <h2 data-i18n="rules.title"></h2>
+    <ol id="rulesList"></ol>
+    <div class="btns"><button class="btn primary" id="btnRulesClose" data-i18n="menu.close"></button></div>
+  </div>
+</div>
+
+<!-- Fin de partida -->
+<div class="overlay" id="endOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <p class="endtitle" id="endText"></p>
+    <p class="sub" id="endHint"></p>
+    <div class="btns">
+      <button class="btn primary" id="btnRematch" data-i18n="end.rematch"></button>
+      <button class="btn" id="btnEndMenu" data-i18n="end.toMenu"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+/*
+ * PENTE CORE — lógica pura, sin DOM, sin red.
+ * Funciona en navegador (window.PenteCore) y en Node (require).
+ * Todas las funciones son puras: playMove devuelve un estado nuevo.
+ *
+ * Reglas implementadas:
+ *  - Tablero 19x19 (o 13x13 con opts.size), se juega en las intersecciones.
+ *  - Jugador 1 (1) mueve primero, luego alternan.
+ *  - Captura: solo PARES. Patrón P O O P en línea (8 direcciones) => se retiran las 2 O.
+ *  - Jugar dentro de un par propio flanqueado NO es captura (jugada segura).
+ *  - Se capturan solo pares exactos (P O O O P no captura).
+ *  - Victoria: 5 o más en línea (H, V, diagonales) o 5 pares capturados.
+ *  - Orden de resolución: se colocan la ficha, se resuelven capturas, se evalúa victoria.
+ *  - Empate: tablero lleno sin ganador.
+ *  - Regla de torneo (opcional, activada por defecto): la 1ª ficha del J1 va al centro y la
+ *    2ª ficha del J1 debe estar a distancia >= 3 del centro (Chebyshev: fuera del cuadrado 5x5).
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.PenteCore = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  var EMPTY = 0, P1 = 1, P2 = 2;
+  var DIRS8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1]];
+  var AXES = [[1,0],[0,1],[1,1],[1,-1]];
+
+  var ERR = {
+    GAME_OVER: 'GAME_OVER',
+    OUT_OF_BOUNDS: 'OUT_OF_BOUNDS',
+    OCCUPIED: 'OCCUPIED',
+    NOT_YOUR_TURN: 'NOT_YOUR_TURN',
+    MUST_PLAY_CENTER: 'MUST_PLAY_CENTER',
+    TOO_CLOSE_TO_CENTER: 'TOO_CLOSE_TO_CENTER',
+    INVALID_COORDS: 'INVALID_COORDS'
+  };
+
+  function opponent(p) { return p === P1 ? P2 : P1; }
+
+  function createGame(opts) {
+    opts = opts || {};
+    var size = opts.size || 19;
+    return {
+      size: size,
+      board: new Array(size * size).fill(EMPTY),
+      current: P1,
+      captures: { 1: 0, 2: 0 },          // pares capturados por cada jugador
+      moves: [],                          // {x,y,player,captured:[{x,y}]}
+      lastMove: null,
+      status: 'playing',                  // 'playing' | 'won' | 'draw'
+      winner: 0,
+      winReasons: [],                     // 'line' | 'captures'
+      winLine: null,                      // [{x,y}...] si ganó por línea
+      options: {
+        tournamentRule: opts.tournamentRule !== false,
+        capturesToWin: opts.capturesToWin || 5,
+        lineToWin: opts.lineToWin || 5,
+        exactFive: !!opts.exactFive            // true: solo cuenta una línea de EXACTAMENTE lineToWin
+      }
+    };
+  }
+
+  function inBounds(s, x, y) { return x >= 0 && y >= 0 && x < s.size && y < s.size; }
+  function get(s, x, y) { return s.board[y * s.size + x]; }
+  function center(s) { return (s.size - 1) / 2; }
+
+  function clone(s) {
+    return {
+      size: s.size, board: s.board.slice(), current: s.current,
+      captures: { 1: s.captures[1], 2: s.captures[2] },
+      moves: s.moves.slice(), lastMove: s.lastMove, status: s.status,
+      winner: s.winner, winReasons: s.winReasons.slice(), winLine: s.winLine,
+      options: { tournamentRule: s.options.tournamentRule, capturesToWin: s.options.capturesToWin, lineToWin: s.options.lineToWin, exactFive: s.options.exactFive }
+    };
+  }
+
+  /** Valida una jugada sin ejecutarla. Devuelve null si es legal, o un código de error. */
+  function validateMove(s, x, y, player) {
+    if (!Number.isInteger(x) || !Number.isInteger(y)) return ERR.INVALID_COORDS;
+    if (s.status !== 'playing') return ERR.GAME_OVER;
+    if (player !== undefined && player !== s.current) return ERR.NOT_YOUR_TURN;
+    if (!inBounds(s, x, y)) return ERR.OUT_OF_BOUNDS;
+    if (get(s, x, y) !== EMPTY) return ERR.OCCUPIED;
+    if (s.options.tournamentRule && s.size % 2 === 1) {
+      var c = center(s), n = s.moves.length;
+      if (n === 0 && (x !== c || y !== c)) return ERR.MUST_PLAY_CENTER;
+      if (n === 2 && Math.max(Math.abs(x - c), Math.abs(y - c)) < 3) return ERR.TOO_CLOSE_TO_CENTER;
+    }
+    return null;
+  }
+
+  /** Pares que captura "player" al colocar en (x,y). Se evalúa ANTES de poner la ficha en el tablero lógico
+   *  (la ficha nueva es la P de un extremo). Devuelve lista de {x,y}. */
+  function findCaptures(s, x, y, player) {
+    var opp = opponent(player), out = [];
+    for (var i = 0; i < DIRS8.length; i++) {
+      var dx = DIRS8[i][0], dy = DIRS8[i][1];
+      var x1 = x + dx, y1 = y + dy, x2 = x + 2*dx, y2 = y + 2*dy, x3 = x + 3*dx, y3 = y + 3*dy;
+      if (!inBounds(s, x3, y3)) continue;
+      if (get(s, x1, y1) === opp && get(s, x2, y2) === opp && get(s, x3, y3) === player) {
+        out.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+      }
+    }
+    return out;
+  }
+
+  /** Línea de >= lineToWin fichas de "player" que pasa por (x,y). Devuelve array de celdas o null. */
+  function findLine(s, x, y, player) {
+    var best = null;
+    for (var a = 0; a < AXES.length; a++) {
+      var dx = AXES[a][0], dy = AXES[a][1];
+      var cells = [{ x: x, y: y }];
+      var cx = x + dx, cy = y + dy;
+      while (inBounds(s, cx, cy) && get(s, cx, cy) === player) { cells.push({ x: cx, y: cy }); cx += dx; cy += dy; }
+      cx = x - dx; cy = y - dy;
+      while (inBounds(s, cx, cy) && get(s, cx, cy) === player) { cells.unshift({ x: cx, y: cy }); cx -= dx; cy -= dy; }
+      if (cells.length >= s.options.lineToWin && (!best || cells.length > best.length)) best = cells;
+    }
+    return best;
+  }
+
+  /** Modo exactFive: busca en todo el tablero una racha de EXACTAMENTE lineToWin fichas de "player". */
+  function findExactLine(s, player) {
+    for (var a = 0; a < AXES.length; a++) {
+      var dx = AXES[a][0], dy = AXES[a][1];
+      for (var y = 0; y < s.size; y++) for (var x = 0; x < s.size; x++) {
+        if (get(s, x, y) !== player) continue;
+        var px = x - dx, py = y - dy;
+        if (inBounds(s, px, py) && get(s, px, py) === player) continue;   // no es inicio de racha
+        var cells = [], cx = x, cy = y;
+        while (inBounds(s, cx, cy) && get(s, cx, cy) === player) { cells.push({ x: cx, y: cy }); cx += dx; cy += dy; }
+        if (cells.length === s.options.lineToWin) return cells;
+      }
+    }
+    return null;
+  }
+
+  /** Ejecuta una jugada. Devuelve {ok:true,state,captured,...} o {ok:false,error}. No muta el estado recibido. */
+  function playMove(s, x, y, player) {
+    var err = validateMove(s, x, y, player);
+    if (err) return { ok: false, error: err };
+
+    var n = clone(s), me = s.current;
+    var captured = findCaptures(s, x, y, me);   // sobre el tablero previo: la ficha nueva es el extremo
+    n.board[y * n.size + x] = me;
+    for (var i = 0; i < captured.length; i++) n.board[captured[i].y * n.size + captured[i].x] = EMPTY;
+    n.captures[me] += captured.length / 2;
+    n.moves.push({ x: x, y: y, player: me, captured: captured });
+    n.lastMove = { x: x, y: y, player: me };
+
+    var reasons = [], line = null, winner = 0;
+    if (n.captures[me] >= n.options.capturesToWin) reasons.push('captures');
+    if (n.options.exactFive) {
+      // Solo cuenta una línea de exactamente 5. Se revisa todo el tablero porque una captura
+      // puede dejar en 5 una línea de 6 (también del rival).
+      line = findExactLine(n, me);
+      if (line) reasons.push('line');
+      if (!reasons.length) {
+        var oppLine = findExactLine(n, opponent(me));
+        if (oppLine) { winner = opponent(me); reasons.push('line'); line = oppLine; }
+      }
+    } else {
+      line = findLine(n, x, y, me);
+      if (line) reasons.push('line');
+    }
+
+    if (reasons.length) {
+      n.status = 'won'; n.winner = winner || me; n.winReasons = reasons; n.winLine = line;
+    } else if (isBoardFull(n)) {
+      n.status = 'draw';   // tablero lleno sin ganador
+    } else {
+      n.current = opponent(me);
+    }
+    return { ok: true, state: n, captured: captured, won: n.status === 'won', draw: n.status === 'draw' };
+  }
+
+  function isBoardFull(s) { for (var i = 0; i < s.board.length; i++) if (s.board[i] === EMPTY) return false; return true; }
+
+  /** Lista de jugadas legales para el jugador en turno (útil para IA y tests). */
+  function legalMoves(s) {
+    var out = [];
+    if (s.status !== 'playing') return out;
+    for (var y = 0; y < s.size; y++) for (var x = 0; x < s.size; x++) if (!validateMove(s, x, y)) out.push({ x: x, y: y });
+    return out;
+  }
+
+  /* Notación de coordenadas: columnas A–T SIN la I (evita confundirla con el 1), filas 1–19 de arriba hacia abajo.
+   * Las letras se cuentan desde la izquierda: en 19x19 el centro es K10; en 13x13 las columnas llegan hasta la N y el centro es G7. */
+  var COLS = 'ABCDEFGHJKLMNOPQRST';
+  function coordName(x, y) { return COLS.charAt(x) + (y + 1); }
+  function parseCoord(str, size) {
+    size = size || 19;
+    var m = /^([A-HJ-T])(\d{1,2})$/i.exec(String(str).trim());
+    if (!m) return null;
+    var x = COLS.indexOf(m[1].toUpperCase()), y = parseInt(m[2], 10) - 1;
+    return (x < size && y >= 0 && y < size) ? { x: x, y: y } : null;
+  }
+
+  /** Para el duelo: cuántas victorias hacen falta para ganar un "al mejor de N". */
+  function winsNeededForBestOf(n) { return Math.floor(n / 2) + 1; }
+
+  return {
+    EMPTY: EMPTY, P1: P1, P2: P2, ERR: ERR,
+    createGame: createGame, validateMove: validateMove, playMove: playMove,
+    findCaptures: findCaptures, findLine: findLine, legalMoves: legalMoves,
+    opponent: opponent, get: get, inBounds: inBounds, center: center,
+    winsNeededForBestOf: winsNeededForBestOf,
+    COLS: COLS, coordName: coordName, parseCoord: parseCoord
+  };
+});
+</script>
+<script>
+/* Sistema de idiomas mínimo. Para sumar un idioma: agregar un objeto en STRINGS con las mismas claves. */
+(function (root) {
+  'use strict';
+  var STRINGS = {
+    es: {
+      'app.title': 'Pente',
+      'menu.title': 'Pente',
+      'menu.subtitle': 'Cinco en línea, o cinco pares capturados.',
+      'menu.p1': 'Jugador 1',
+      'menu.p2': 'Jugador 2',
+      'theme.clasico': 'Tradicional',
+      'theme.glow': 'Glow',
+      'menu.resume': 'Seguir jugando',
+      'menu.size': 'Tamaño del tablero',
+      'menu.size13': '13×13',
+      'menu.size19': '19×19',
+      'menu.sizeHint': '13×13: casillas más grandes (cómodo en celular) y partidas más cortas. 19×19: el clásico.',
+      'menu.tournamentRule': 'Regla de torneo',
+      'menu.tournamentRuleHint': 'El jugador 1 abre en el centro y su segunda ficha va a 3 o más casillas del centro.',
+      'menu.exactFive': 'Seis o más en línea no cuenta',
+      'menu.exactFiveHint': 'Solo gana una línea de exactamente cinco. Si capturan una ficha y la línea de seis queda en cinco, cuenta.',
+      'menu.settings': 'Configuración',
+      'menu.gameOptions': 'Reglas de esta partida',
+      'cfg.title': 'Configuración',
+      'cfg.hintSaved': 'Se guarda en este dispositivo y se aplica al instante.',
+      'cfg.tab.sound': 'Sonido',
+      'cfg.tab.graphics': 'Gráficos',
+      'cfg.tab.controls': 'Controles',
+      'cfg.tab.game': 'Juego',
+      'cfg.sound': 'Efectos de sonido',
+      'cfg.soundHint': 'Sonidos provisorios al poner fichas, capturar y ganar.',
+      'cfg.volume': 'Volumen',
+      'cfg.vibrate': 'Vibración',
+      'cfg.vibrateHint': 'Un toquecito al jugar. Solo en celulares Android; el iPhone no la permite.',
+      'cfg.theme': 'Estilo del tablero',
+      'cfg.coords': 'Mostrar letras y números',
+      'cfg.coordsHint': 'Las coordenadas (A–T, 1–19) en los bordes. Apagadas, el tablero gana un poco de tamaño.',
+      'cfg.lastMove': 'Marcar la última jugada',
+      'cfg.anim': 'Animaciones',
+      'cfg.animHint': 'La ficha se levanta y cae suave. Apagalo si tu celular va lento o te marea.',
+      'cfg.stoneSize': 'Tamaño de las fichas',
+      'cfg.size.small': 'Chicas',
+      'cfg.size.normal': 'Normales',
+      'cfg.size.large': 'Grandes',
+      'cfg.confirm': 'Cómo confirmar la jugada',
+      'cfg.confirm.button': 'Botón',
+      'cfg.confirm.double': 'Doble toque',
+      'cfg.confirm.none': 'Directo',
+      'cfg.confirm.buttonHint': 'Tocás o arrastrás la ficha a su lugar y apretás Confirmar.',
+      'cfg.confirm.doubleHint': 'Tocás o arrastrás la ficha a su lugar y volvés a tocar esa misma ficha para jugarla.',
+      'cfg.confirm.noneHint': 'Un toque juega al instante. Arrastrar y soltar también juega. Ojo: no hay vuelta atrás.',
+      'cfg.confirmNote': 'Estas opciones son para pantallas táctiles. Con mouse, un clic juega.',
+      'cfg.lift': 'Altura de la ficha al arrastrar',
+      'cfg.lift.low': 'Baja',
+      'cfg.lift.mid': 'Media',
+      'cfg.lift.high': 'Alta',
+      'cfg.liftHint': 'Qué tan arriba del dedo flota la ficha. Más alta = la ves mejor, pero tenés que bajar más el dedo.',
+      'cfg.guides': 'Guías de fila y columna al arrastrar',
+      'cfg.zone': 'Mostrar la zona prohibida del centro',
+      'cfg.zoneHint': 'El cuadrado sombreado de la regla de torneo, en la segunda jugada del jugador 1.',
+      'cfg.reset': 'Restablecer configuración',
+      'cfg.resetConfirm': '¿Volver todos los ajustes de esta pantalla a como vienen de fábrica?',
+      'cfg.resetDone': 'Configuración restablecida',
+      'menu.start': 'Jugar en este dispositivo',
+      'menu.online': 'Jugar online',
+      'menu.back': 'Volver',
+      'menu.rules': 'Cómo se juega',
+      'menu.close': 'Cerrar',
+      'hud.turn': 'Turno de {name}',
+      'hud.captures': 'Pares capturados',
+      'hud.restart': 'Reiniciar',
+      'hud.confirm': 'Confirmar',
+      'hud.dragHint': 'Soltala donde quieras y tocá Confirmar.',
+      'hud.dragHintDouble': 'Tocá la ficha otra vez para jugarla.',
+      'hud.tapHintDouble': 'Tocá la ficha otra vez para confirmar.',
+      'hud.tapHintButton': 'Tocá Confirmar para jugarla.',
+      'hud.menu': 'Menú',
+      'hud.lastMove': 'Última jugada',
+      'toast.captured': '{name} capturó un par',
+      'toast.capturedMany': '{name} capturó {n} pares',
+      'end.winLine': '{name} ganó con cinco en línea',
+      'end.winCaptures': '{name} ganó con cinco pares capturados',
+      'end.winBoth': '{name} ganó: cinco en línea y cinco pares a la vez',
+      'end.draw': 'Empate: el tablero se llenó',
+      'end.rematch': 'Revancha',
+      'end.toMenu': 'Volver al menú',
+      'confirm.restart': '¿Reiniciar la partida en curso?',
+      'err.OCCUPIED': 'Esa intersección ya está ocupada.',
+      'err.OUT_OF_BOUNDS': 'Fuera del tablero.',
+      'err.GAME_OVER': 'La partida ya terminó.',
+      'err.NOT_YOUR_TURN': 'No es tu turno.',
+      'err.MUST_PLAY_CENTER': 'Regla de torneo: la primera ficha va en el centro.',
+      'err.TOO_CLOSE_TO_CENTER': 'Regla de torneo: tu segunda ficha va a 3 o más casillas del centro.',
+      'err.INVALID_COORDS': 'Jugada inválida.',
+      'rules.title': 'Cómo se juega',
+      'rules.1': 'Se juega sobre las intersecciones de un tablero de 19×19 (o de 13×13, más corto). Se turnan una ficha por vez.',
+      'rules.2': 'Ganás con cinco o más fichas en línea (horizontal, vertical o diagonal).',
+      'rules.3': 'Capturás encerrando exactamente dos fichas rivales entre dos tuyas, en cualquier línea. Los pares capturados salen del tablero.',
+      'rules.4': 'Si ponés una ficha entre dos rivales que ya la flanquean, no te la capturan.',
+      'rules.5': 'Ganás también si capturás cinco pares.',
+      'rules.6': 'Con la regla de torneo, el jugador 1 abre en el centro y su segunda ficha va a 3 o más casillas de distancia del centro.',
+      'rules.7': 'Variante opcional: una línea de seis o más no cuenta; solo gana una de exactamente cinco.',
+      'hud.resign': 'Abandonar',
+      'online.title': 'Jugar online',
+      'online.sub': 'Creá una sala y mandale el enlace a tu rival, o entrá con el código que te pasaron.',
+      'online.yourName': 'Tu nombre',
+      'online.create': 'Crear sala',
+      'online.createHint': 'Se usan las reglas tildadas en el menú. En la primera partida jugás con las fichas del jugador 1.',
+      'online.or': 'o',
+      'online.code': 'Código de sala',
+      'online.join': 'Unirme',
+      'online.connecting': 'Conectando… si el servidor estaba dormido puede tardar hasta un minuto.',
+      'online.stillTrying': 'Todavía no conecta. Sigo reintentando…',
+      'online.noServer': 'El modo online todavía no está configurado en esta versión.',
+      'online.waitTitle': 'Sala creada',
+      'online.waitSub': 'Mandale este enlace a tu rival. La partida empieza apenas entre.',
+      'online.copyLink': 'Copiar enlace',
+      'online.copied': 'Enlace copiado',
+      'online.copyFail': 'No se pudo copiar. Copialo a mano.',
+      'online.share': 'Compartir',
+      'online.cancel': 'Cancelar',
+      'online.you': '(vos)',
+      'online.yourTurn': 'Tu turno',
+      'online.theirTurn': 'Turno de {name}',
+      'online.wait': 'Esperá tu turno.',
+      'online.rivalOffline': '{name} se desconectó. Esperando que vuelva…',
+      'online.reconnecting': 'Reconectando…',
+      'online.claim': 'Reclamar victoria',
+      'online.resignConfirm': '¿Abandonar la partida? Gana tu rival.',
+      'online.leaveConfirm': '¿Salir de la sala? Cuenta como abandono.',
+      'online.leave': 'Salir de la sala',
+      'online.rematchWait': 'Esperando que tu rival acepte…',
+      'online.rematchRival': '{name} quiere la revancha.',
+      'online.roomGone': 'La sala ya no existe: el servidor se reinició o pasó mucho tiempo. Creá una nueva.',
+      'toast.rematch': 'Nueva partida. Ahora sos el jugador {n}.',
+      'end.winResign': '{loser} abandonó. Ganó {name}.',
+      'end.winForfeit': '{loser} se desconectó. Ganó {name}.',
+      'err.ROOM_NOT_FOUND': 'No existe esa sala. Revisá el código.',
+      'err.ROOM_FULL': 'La sala ya tiene dos jugadores.',
+      'err.BAD_TOKEN': 'No se pudo recuperar tu lugar en la sala.',
+      'err.SERVER_BUSY': 'El servidor está lleno. Probá en un rato.',
+      'err.WAITING_FOR_RIVAL': 'Todavía no entró tu rival.',
+      'err.RATE_LIMIT': 'Vas muy rápido. Esperá un segundo.',
+      'err.CANNOT_CLAIM': 'Todavía no podés reclamar la victoria.',
+      'err.GAME_NOT_OVER': 'La partida todavía no terminó.',
+      'err.NOT_IN_ROOM': 'No estás en una sala.',
+      'err.BAD_REQUEST': 'Algo salió mal. Probá de nuevo.',
+      'a11y.board': 'Tablero de Pente',
+      'player.1': 'Jugador 1',
+      'player.2': 'Jugador 2'
+    }
+  };
+  var lang = 'es';
+  function t(key, vars) {
+    var s = (STRINGS[lang] && STRINGS[lang][key]) || (STRINGS.es && STRINGS.es[key]) || key;
+    if (vars) for (var k in vars) s = s.replace('{' + k + '}', vars[k]);
+    return s;
+  }
+  function setLang(l) { if (STRINGS[l]) lang = l; }
+  function available() { return Object.keys(STRINGS); }
+  root.I18n = { t: t, setLang: setLang, available: available, STRINGS: STRINGS };
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>
+/* Temas del tablero. Cada tema es solo DATOS: para sumar uno nuevo, agregar un objeto a "list"
+ * (y su nombre en i18n como 'theme.<id>'). El dibujo y el menú lo toman solos. */
+(function (root) {
+  'use strict';
+  var list = [
+    {
+      id: 'clasico',
+      css: { '--accent': '#e8b04a', '--s1a': '#5a5a5a', '--s1b': '#070707', '--s2a': '#ffffff', '--s2b': '#c9c2b2',
+             '--board-shadow': '0 10px 30px rgba(0,0,0,.45)' },
+      board: { bg: ['#d9a85b', '#c4903f'], line: 'rgba(40,25,5,.85)', lineGlow: null, star: 'rgba(40,25,5,.9)', label: 'rgba(40,25,5,.72)', labelHi: '#7a1f0a' },
+      stones: { 1: { a: '#5a5a5a', b: '#070707', glow: null }, 2: { a: '#ffffff', b: '#c9c2b2', glow: null } },
+      last: { ring: '#e5604f', dot: { 1: '#f4f1ea', 2: '#111111' } },
+      zone: { fill: 'rgba(0,0,0,.22)', stroke: 'rgba(0,0,0,.55)' },
+      win: '#e8b04a', pendingRing: '#2b6fe8', kbd: '#79b8ff'
+    },
+    {
+      id: 'glow',
+      css: { '--accent': '#7cf0ff', '--s1a': '#ffd0ec', '--s1b': '#e0147a', '--s2a': '#eaffff', '--s2b': '#17bfe0',
+             '--board-shadow': '0 0 42px rgba(70,120,255,.38)' },
+      board: { bg: ['#060a18', '#131a3a'], line: 'rgba(110,150,255,.55)', lineGlow: 'rgba(80,130,255,.9)', star: 'rgba(170,200,255,.95)', label: 'rgba(150,185,255,.78)', labelHi: '#ffffff' },
+      stones: { 1: { a: '#ffd0ec', b: '#e0147a', glow: '#ff2d95' }, 2: { a: '#eaffff', b: '#17bfe0', glow: '#27e8ff' } },
+      last: { ring: '#ffffff', dot: { 1: '#ffffff', 2: '#062030' } },
+      zone: { fill: 'rgba(255,255,255,.07)', stroke: 'rgba(160,190,255,.55)' },
+      win: '#ffe066', pendingRing: '#ffe066', kbd: '#ffffff'
+    }
+  ];
+  var byId = {};
+  list.forEach(function (th) { byId[th.id] = th; });
+  root.Themes = { list: list, byId: byId, defaultId: 'clasico' };
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script src="config.js"></script>
+<script>
+/* Conexión online de Pente: WebSocket con reconexión automática. No conoce las reglas ni la pantalla.
+ *   var conn = PenteNet.connect(url, { onOpen, onMessage(msg), onState(estado) });
+ *   conn.send({...}) -> true si se envió | conn.isOpen() | conn.close()
+ * Estados: 'connecting' (primer intento) | 'open' | 'reconnecting' | 'closed'.
+ * Si el servidor estaba dormido (plan gratuito), los primeros intentos fallan: se reintenta solo con espera creciente. */
+(function (root) {
+  'use strict';
+
+  function connect(url, h) {
+    var ws = null, closed = false, attempt = 0, everOpen = false, retryTimer = null, hbTimer = null;
+
+    function setState(s) { if (h.onState) h.onState(s); }
+
+    function open() {
+      clearTimeout(retryTimer);
+      setState(everOpen || attempt > 0 ? 'reconnecting' : 'connecting');
+      var sock;
+      try { sock = new WebSocket(url); } catch (e) { return schedule(); }
+      ws = sock;
+      sock.onopen = function () {
+        if (ws !== sock) return;
+        attempt = 0; everOpen = true; setState('open'); startHeartbeat();
+        if (h.onOpen) h.onOpen();
+      };
+      sock.onmessage = function (e) {
+        if (ws !== sock) return;
+        var m; try { m = JSON.parse(e.data); } catch (x) { return; }
+        if (h.onMessage) h.onMessage(m);
+      };
+      sock.onclose = function () {
+        if (ws !== sock) return;
+        ws = null; stopHeartbeat();
+        if (closed) setState('closed'); else schedule();
+      };
+      sock.onerror = function () { /* el cierre dispara el reintento */ };
+    }
+
+    function schedule() {
+      if (closed) return;
+      setState('reconnecting');
+      attempt++;
+      var wait = Math.min(10000, 1000 * Math.pow(2, Math.min(attempt - 1, 4)));   // 1s, 2s, 4s, 8s, 10s...
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(open, wait);
+    }
+
+    // Latido: mantiene viva la conexión a través de proxies y evita que el servidor gratuito se duerma en plena partida.
+    function startHeartbeat() { stopHeartbeat(); hbTimer = setInterval(function () { send({ t: 'ping' }); }, 20000); }
+    function stopHeartbeat() { clearInterval(hbTimer); hbTimer = null; }
+
+    function isOpen() { return !!ws && ws.readyState === 1; }
+    function send(obj) { if (!isOpen()) return false; try { ws.send(JSON.stringify(obj)); return true; } catch (e) { return false; } }
+
+    // Al volver a la pestaña o recuperar internet, reintenta ya en vez de esperar el temporizador.
+    function kick() { if (!closed && !isOpen() && !(ws && ws.readyState === 0)) { attempt = 0; open(); } }
+    function onVisible() { if (!document.hidden) kick(); }
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', kick);
+
+    function close() {
+      closed = true; clearTimeout(retryTimer); stopHeartbeat();
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', kick);
+      var s = ws; ws = null;
+      if (s) { try { s.close(); } catch (e) {} }
+      setState('closed');
+    }
+
+    open();
+    return { send: send, isOpen: isOpen, close: close };
+  }
+
+  // URL http(s) equivalente a la del WebSocket, para "despertar" al servidor con /health.
+  function httpBase(wsUrl) { return String(wsUrl || '').replace(/^ws/i, 'http').replace(/\/+$/, ''); }
+
+  root.PenteNet = { connect: connect, httpBase: httpBase };
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>
+/* Sonidos PROVISORIOS de Pente: se sintetizan con WebAudio, no hay archivos de audio.
+ * Para reemplazarlos por sonidos propios, alcanza con cambiar el cuerpo de cada función en RECIPES.
+ *   PenteSound.unlock()  -> hay que llamarlo desde un toque/clic del usuario (los navegadores lo exigen)
+ *   PenteSound.play('place' | 'pick' | 'capture' | 'win' | 'lose' | 'error')
+ *   PenteSound.setEnabled(bool) / isEnabled()   (se guarda en el dispositivo)
+ * Limitación conocida: en iPhone, el interruptor lateral de silencio también calla estos sonidos. */
+(function (root) {
+  'use strict';
+  var ctx = null, enabled = true, master = null, stats = {}, volume = 0.8, vibrate = true;
+  try {
+    enabled = localStorage.getItem('pente.sound') !== '0';
+    vibrate = localStorage.getItem('pente.vibrate') !== '0';
+    var v = parseFloat(localStorage.getItem('pente.volume')); if (v >= 0 && v <= 1) volume = v;
+  } catch (e) {}
+  function applyVolume() { if (master) master.gain.value = 0.7 * volume; }
+
+  function ensure() {
+    if (ctx) return ctx;
+    var AC = root.AudioContext || root.webkitAudioContext;
+    if (!AC) return null;
+    try {
+      ctx = new AC();
+      master = ctx.createGain(); master.connect(ctx.destination); applyVolume();
+    } catch (e) { ctx = null; }
+    return ctx;
+  }
+  function unlock() {
+    var c = ensure();
+    if (c && c.state === 'suspended') { try { c.resume(); } catch (e) {} }
+  }
+
+  // Un tono: frecuencia que baja/sube, con volumen que arranca fuerte y se apaga.
+  function tone(freq, freqEnd, dur, type, vol, delay) {
+    var t0 = ctx.currentTime + (delay || 0);
+    var o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  // Ruido corto (el "clac" de la ficha contra la madera).
+  function click(dur, vol, cutoff, delay) {
+    var t0 = ctx.currentTime + (delay || 0), n = Math.max(1, Math.floor(ctx.sampleRate * dur));
+    var buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+    var src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    f.type = 'bandpass'; f.frequency.value = cutoff; f.Q.value = 0.9; g.gain.value = vol;
+    src.buffer = buf; src.connect(f); f.connect(g); g.connect(master); src.start(t0);
+  }
+
+  var RECIPES = {
+    place:   function () { click(0.05, 0.9, 1800); tone(210, 95, 0.09, 'sine', 0.55); },
+    pick:    function () { tone(520, 760, 0.07, 'triangle', 0.16); },
+    capture: function () { click(0.06, 0.7, 1200); tone(640, 240, 0.16, 'triangle', 0.38, 0.03); tone(430, 160, 0.2, 'sine', 0.3, 0.09); },
+    win:     function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0, 0.28, 'triangle', 0.32, i * 0.11); }); tone(1319, 0, 0.5, 'sine', 0.2, 0.46); },
+    lose:    function () { [392, 330, 262].forEach(function (f, i) { tone(f, 0, 0.3, 'triangle', 0.26, i * 0.14); }); },
+    error:   function () { tone(150, 110, 0.12, 'square', 0.12); }
+  };
+
+  function play(name) {
+    stats[name] = (stats[name] || 0) + 1;            // contador para las pruebas automáticas
+    if (!enabled || !RECIPES[name]) return;
+    var c = ensure(); if (!c) return;
+    if (c.state === 'suspended') { try { c.resume(); } catch (e) {} }
+    try { RECIPES[name](); } catch (e) { stats.lastError = name + ': ' + e; }
+  }
+  function buzz(ms) { try { if (vibrate && navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }   // Android; iPhone lo ignora
+  function setVolume(v) { volume = Math.max(0, Math.min(1, v)); applyVolume(); try { localStorage.setItem('pente.volume', String(volume)); } catch (e) {} }
+  function setVibrate(v) { vibrate = !!v; try { localStorage.setItem('pente.vibrate', vibrate ? '1' : '0'); } catch (e) {} }
+  function setEnabled(v) { enabled = !!v; try { localStorage.setItem('pente.sound', enabled ? '1' : '0'); } catch (e) {} }
+
+  root.PenteSound = { unlock: unlock, play: play, buzz: buzz, setEnabled: setEnabled, isEnabled: function () { return enabled; }, setVolume: setVolume, getVolume: function () { return volume; }, setVibrate: setVibrate, vibrateOn: function () { return vibrate; }, stats: stats, state: function () { return ctx ? ctx.state : 'sin-contexto'; } };
+})(typeof self !== 'undefined' ? self : this);
+</script>
+<script>
+/* UI de Pente — Fase 1: partida local de 2 jugadores. No contiene reglas: todo pasa por PenteCore. */
+(function () {
+  'use strict';
+  var P = window.PenteCore, t = window.I18n.t;
+  var $ = function (id) { return document.getElementById(id); };
+
+  var canvas = $('board'), ctx = canvas.getContext('2d');
+  var state = null, names = { 1: '', 2: '' };
+  var settings = { tournamentRule: true, exactFive: false, size: 19 };      // opciones de la partida (menú principal)
+  try { var sv = parseInt(localStorage.getItem('pente.size'), 10); if (sv === 13 || sv === 19) settings.size = sv; } catch (e) {}
+
+  /* Configuración del dispositivo (pantalla "Configuración"): se guarda en localStorage y se aplica al instante. */
+  var coarse = matchMedia('(pointer: coarse)').matches, reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var CFG_DEFAULTS = { confirm: coarse ? 'button' : 'none', lift: 'mid', guides: true, coords: true, lastMove: true, anim: !reduced, stoneSize: 'normal', zone: true };
+  var CFG_ALLOWED = { confirm: ['button', 'double', 'none'], lift: ['low', 'mid', 'high'], stoneSize: ['small', 'normal', 'large'] };
+  function loadCfg() {
+    var c = {}, k, raw = null;
+    for (k in CFG_DEFAULTS) c[k] = CFG_DEFAULTS[k];
+    try {
+      raw = JSON.parse(localStorage.getItem('pente.cfg') || 'null');
+      if (!raw) { var old = localStorage.getItem('pente.confirm'); if (old === '1') c.confirm = 'button'; else if (old === '0') c.confirm = 'none'; }   // versión anterior
+    } catch (e) { raw = null; }
+    if (raw && typeof raw === 'object') for (k in CFG_DEFAULTS) {
+      if (CFG_ALLOWED[k]) { if (CFG_ALLOWED[k].indexOf(raw[k]) >= 0) c[k] = raw[k]; }
+      else if (typeof raw[k] === 'boolean') c[k] = raw[k];
+    }
+    return c;
+  }
+  function saveCfg() { try { localStorage.setItem('pente.cfg', JSON.stringify(cfg)); } catch (e) {} }
+  var cfg = loadCfg();
+  var drag = null;        // ficha que se está arrastrando con el dedo
+  var settle = null;      // animación de la ficha al soltarla
+  var animReq = 0, dropHints = 0, tapHints = 0;
+  var hover = null;       // {x,y} previsualización (mouse / toque pendiente)
+  var pending = null;     // toque pendiente de confirmar
+  var kbd = null;         // cursor de teclado
+  var toastTimer = null;
+  var metrics = { w: 0, cell: 0, off: 0 };
+  function boardN() { return state ? state.size : settings.size; }
+  function centerIdx() { return (boardN() - 1) / 2; }
+  function sfx(name) { if (window.PenteSound) window.PenteSound.play(name); }
+  function buzz(ms) { if (window.PenteSound) window.PenteSound.buzz(ms); }
+  var online = {
+    active: false, net: null, url: '', conn: 'closed', code: '', token: '', me: 0, intent: null, rejoining: false,
+    over: null, connected: { 1: true, 2: true }, rematch: { 1: false, 2: false },
+    rivalLeftAt: 0, claimTimer: null, awaiting: false, awaitTimer: null
+  };
+
+  // ¿terminó la partida? (en online puede terminar por abandono, sin que el tablero lo muestre)
+  function isOver() { return !state || state.status !== 'playing' || (online.active && !!online.over); }
+  function canPlayNow() { return !!state && !isOver() && (!online.active || state.current === online.me); }
+  function turnText() {
+    if (!online.active) return t('hud.turn', { name: names[state.current] });
+    if (online.conn !== 'open') return t('online.reconnecting');
+    if (!names[2]) return '';                       // todavía no entró el rival
+    var rival = online.me === 1 ? 2 : 1;
+    if (!online.connected[rival]) return t('online.rivalOffline', { name: names[rival] });
+    return state.current === online.me ? t('online.yourTurn') : t('online.theirTurn', { name: names[state.current] });
+  }
+
+  /* ---------- Partida ---------- */
+  function startGame() {
+    if (online.net) leaveOnline(false);
+    names[1] = ($('name1').value || '').trim() || t('player.1');
+    names[2] = ($('name2').value || '').trim() || t('player.2');
+    settings.tournamentRule = $('optTournament').checked;
+    settings.exactFive = $('optExact').checked;
+    state = P.createGame({ size: settings.size, tournamentRule: settings.tournamentRule, exactFive: settings.exactFive });
+    hover = pending = drag = settle = null;
+    kbd = { x: centerIdx(), y: centerIdx() };
+    closeAll(); render(); setStatus('');
+  }
+
+  function announceCaptures(mover, captured) {
+    if (captured.length) {
+      var n = captured.length / 2;
+      setStatus(n === 1 ? t('toast.captured', { name: names[mover] }) : t('toast.capturedMany', { name: names[mover], n: n }), true);
+    } else setStatus('');
+  }
+
+  // Sonido y vibración de una jugada ya resuelta (captured = lista de fichas capturadas, ended = terminó la partida).
+  function moveFeedback(captured, ended, winner) {
+    if (captured.length) { sfx('place'); setTimeout(function () { sfx('capture'); }, 70); buzz([10, 40, 18]); }
+    else { sfx('place'); buzz(8); }
+    if (ended) setTimeout(function () { sfx(online.active ? (winner === online.me ? 'win' : 'lose') : 'win'); }, 380);
+  }
+
+  function tryMove(x, y) {
+    if (!state || isOver()) return;
+    settle = null;
+    if (online.active) {
+      // En online el servidor es el árbitro: acá solo se comprueba rápido y se envía; el tablero cambia cuando el servidor lo confirma.
+      if (state.current !== online.me) { setStatus(t('online.wait'), true); sfx('error'); return; }
+      if (online.awaiting) return;
+      var v = P.validateMove(state, x, y, online.me);
+      if (v) { setStatus(t('err.' + v), true); sfx('error'); render(); return; }
+      if (!online.net || !online.net.send({ t: 'move', x: x, y: y })) { setStatus(t('online.reconnecting'), true); return; }
+      online.awaiting = true; clearTimeout(online.awaitTimer);
+      online.awaitTimer = setTimeout(function () { online.awaiting = false; }, 4000);
+      pending = hover = null; render();
+      return;
+    }
+    var r = P.playMove(state, x, y, state.current);
+    if (!r.ok) { setStatus(t('err.' + r.error), true); sfx('error'); render(); return; }
+    var mover = state.current;
+    state = r.state; pending = hover = null;
+    announceCaptures(mover, r.captured);
+    moveFeedback(r.captured, state.status !== 'playing', state.winner);
+    render();
+    if (state.status !== 'playing') setTimeout(showEnd, 450);
+  }
+
+  /* ---------- Entrada ---------- */
+  // px de pantalla -> px del canvas
+  function kScale() { var rect = canvas.getBoundingClientRect(); return rect.width ? metrics.w / rect.width : 1; }
+  function toCanvas(e) { var rect = canvas.getBoundingClientRect(), k = rect.width ? metrics.w / rect.width : 1; return { x: (e.clientX - rect.left) * k, y: (e.clientY - rect.top) * k }; }
+  function snap(cx, cy, clamp) {
+    var n = boardN(), x = Math.round((cx - metrics.off) / metrics.cell), y = Math.round((cy - metrics.off) / metrics.cell);
+    if (clamp) return { x: Math.max(0, Math.min(n - 1, x)), y: Math.max(0, Math.min(n - 1, y)) };
+    return state && P.inBounds(state, x, y) ? { x: x, y: y } : null;
+  }
+  function cellFromEvent(e) { var c = toCanvas(e); return snap(c.x, c.y, false); }
+  function coordLabel(c) { return P.coordName(c.x, c.y); }
+  function easeOut(k) { return 1 - Math.pow(1 - k, 3); }
+
+  /* Mouse y lápiz: previsualización al pasar y un clic coloca. */
+  canvas.addEventListener('pointermove', function (e) {
+    if (e.pointerType === 'touch') { if (drag && drag.id === e.pointerId) { e.preventDefault(); dragMove(e); } return; }
+    if (!canPlayNow()) return;
+    var c = cellFromEvent(e);
+    if (!c || (hover && c.x === hover.x && c.y === hover.y)) { if (!c && hover) { hover = null; render(); } return; }
+    hover = c; render();
+  });
+  canvas.addEventListener('pointerleave', function (e) { if (e.pointerType !== 'touch' && hover && !pending) { hover = null; render(); } });
+  canvas.addEventListener('pointerup', function (e) {
+    if (e.pointerType === 'touch') return;                 // el dedo se maneja abajo (pointerdown/up con arrastre)
+    var c = cellFromEvent(e); if (!c) return;
+    kbd = c;
+    if (isOver()) return;
+    if (online.active && state.current !== online.me) { setStatus(t('online.wait'), true); sfx('error'); return; }
+    tryMove(c.x, c.y);
+  });
+  canvas.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+
+  /* Dedo: tocar marca una intersección exacta (queda una ficha "pendiente"). Si arrastrás, la ficha se levanta POR ENCIMA del dedo
+     (así el dedo no la tapa), se ven guías de fila y columna, y al soltar cae en la intersección más cercana.
+     Tocar de nuevo la ficha pendiente, o el botón Confirmar, juega. Sin "confirmar con segundo toque": soltar juega directo. */
+  var TOUCH_SLOP = 8;                                       // px de pantalla que hay que mover el dedo para que cuente como arrastre
+  var LIFT = { low: [1.2, 30], mid: [1.9, 46], high: [2.6, 62] };            // [casillas, px mínimos de pantalla]
+  function liftPx() { var l = LIFT[cfg.lift] || LIFT.mid; return Math.max(metrics.cell * l[0], l[1] * kScale()); }   // cuánto sube la ficha por encima del dedo (px de canvas)
+  function heldPos() {                                      // centro de la ficha que se arrastra, en px de canvas
+    if (!drag.lifted) return { x: px(drag.cell.x), y: px(drag.cell.y) };
+    var e = cfg.anim ? easeOut(Math.min(1, (performance.now() - drag.liftStart) / 120)) : 1, L = liftPx();
+    return { x: drag.f.x + drag.vec.x * (1 - e), y: drag.f.y + drag.vec.y * (1 - e) - L * e };
+  }
+  function updateDragTarget() {
+    var pos = heldPos(), c = snap(pos.x, pos.y, true);
+    if (c.x !== drag.cell.x || c.y !== drag.cell.y) { drag.cell = c; kbd = c; setStatus(coordLabel(c), true); }
+  }
+  function dragError(c) { return state ? P.validateMove(state, c.x, c.y) : 'GAME_OVER'; }
+
+  canvas.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'touch' || !state || isOver() || drag) return;
+    e.preventDefault();
+    var p = toCanvas(e), c = snap(p.x, p.y, false); if (!c) return;
+    kbd = c;
+    if (online.active && state.current !== online.me) { setStatus(t('online.wait'), true); sfx('error'); return; }
+    if (P.get(state, c.x, c.y) !== P.EMPTY) { setStatus(t('err.OCCUPIED'), true); sfx('error'); return; }
+    var grab = !!(pending && cfg.confirm !== 'none' && pending.x === c.x && pending.y === c.y);
+    drag = { id: e.pointerId, grab: grab, prev: pending, cell: c, f: p, vec: null, lifted: false, liftStart: 0, cssX: e.clientX, cssY: e.clientY };
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    if (!grab) {
+      var bad = P.validateMove(state, c.x, c.y);
+      if (bad) { pending = hover = null; setStatus(t('err.' + bad), true); sfx('error'); }
+      else { if (cfg.confirm !== 'none') { pending = c; hover = c; } else { pending = null; hover = c; } setStatus(coordLabel(c), true); }
+    }
+    render();
+  });
+
+  function dragMove(e) {
+    var p = toCanvas(e); drag.f = p;
+    if (!drag.lifted) {
+      if (Math.hypot(e.clientX - drag.cssX, e.clientY - drag.cssY) < TOUCH_SLOP) return;
+      drag.lifted = true; drag.liftStart = performance.now();
+      drag.vec = { x: px(drag.cell.x) - p.x, y: px(drag.cell.y) - p.y };   // dónde estaba la ficha respecto del dedo al levantarla
+      sfx('pick'); buzz(5);
+    }
+    render();
+  }
+
+  function endDrag(e, cancelled) {
+    if (!drag || drag.id !== e.pointerId) return;
+    var d = drag; drag = null;
+    try { canvas.releasePointerCapture(d.id); } catch (err) {}
+    if (!state || isOver() || cancelled) { pending = d.prev; hover = null; setStatus(''); render(); return; }
+    if (!d.lifted) {                                          // toque simple, sin arrastrar
+      if (d.grab) {                                                                  // toque sobre la ficha pendiente
+        if (cfg.confirm === 'double') { setStatus(''); tryMove(d.cell.x, d.cell.y); }  // doble toque: juega
+        else { hover = null; setStatus(t('hud.tapHintButton'), true); render(); }       // modo botón: no hace nada, avisa
+        return;
+      }
+      if (cfg.confirm === 'none') { tryMove(d.cell.x, d.cell.y); return; }
+      hover = null;
+      if (pending) { sfx('pick'); if (cfg.confirm === 'double' && tapHints < 2) { tapHints++; setStatus(t('hud.tapHintDouble'), true); } }
+      render(); return;
+    }
+    var c = d.cell, bad = dragError(c), pos = (function () { var keep = drag; drag = d; var q = heldPos(); drag = keep; return q; })();
+    if (bad) {                                                // soltó en un lugar no permitido: vuelve donde estaba
+      pending = d.prev; hover = null; setStatus(t('err.' + bad), true); sfx('error'); render(); return;
+    }
+    if (cfg.confirm === 'none') { hover = null; tryMove(c.x, c.y); return; }
+    pending = c; hover = null; kbd = c;
+    settle = cfg.anim ? { x0: pos.x, y0: pos.y, c: c, t0: performance.now(), dur: 130, player: state.current } : null;
+    if (dropHints < 2) { dropHints++; setStatus(t(cfg.confirm === 'double' ? 'hud.dragHintDouble' : 'hud.dragHint'), true); } else setStatus('');
+    render();
+  }
+  canvas.addEventListener('pointerup', function (e) { if (e.pointerType === 'touch') endDrag(e, false); });
+  canvas.addEventListener('pointercancel', function (e) { if (e.pointerType === 'touch') endDrag(e, true); });
+
+  canvas.addEventListener('keydown', function (e) {
+    if (!state) return;
+    var d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key], m = boardN() - 1;
+    if (d) { e.preventDefault(); kbd = kbd || { x: centerIdx(), y: centerIdx() }; kbd = { x: Math.max(0, Math.min(m, kbd.x + d[0])), y: Math.max(0, Math.min(m, kbd.y + d[1])) }; hover = kbd; render(); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (kbd) tryMove(kbd.x, kbd.y); }
+  });
+
+  /* ---------- Dibujo ---------- */
+  function resize() {
+    var cssW = canvas.clientWidth || 600, dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(cssW * dpr); canvas.height = Math.round(cssW * dpr);
+    metrics.w = canvas.width;
+    render();
+  }
+  function layout() {      // con coordenadas hay margen sup./izq. para letras y números; sin ellas el tablero aprovecha ese espacio
+    var n = boardN();
+    if (cfg.coords) { metrics.cell = metrics.w / (n + 0.65); metrics.off = metrics.cell * 1.15; }
+    else { metrics.cell = metrics.w / n; metrics.off = metrics.cell * 0.5; }
+  }
+  function px(i) { return metrics.off + i * metrics.cell; }
+
+  function drawStone(x, y, player, alpha, highlight) { drawStonePx(px(x), px(y), player, alpha, highlight, 1, 0); }
+  // scale > 1 y lift (0..1) = ficha levantada: más grande y con sombra más lejana
+  function drawStonePx(cx, cy, player, alpha, highlight, scale, lift) {
+    var th = theme(), st = th.stones[player];
+    var r = metrics.cell * ({ small: 0.39, normal: 0.44, large: 0.48 }[cfg.stoneSize] || 0.44) * (scale || 1);
+    ctx.save(); ctx.globalAlpha = alpha;
+    if (st.glow) { ctx.shadowColor = st.glow; ctx.shadowBlur = r * (1.2 + (lift || 0) * 0.8); }
+    else { ctx.shadowColor = 'rgba(0,0,0,' + (0.45 - 0.1 * (lift || 0)) + ')'; ctx.shadowBlur = r * (0.35 + (lift || 0) * 0.7); ctx.shadowOffsetY = r * (0.12 + (lift || 0) * 0.5); }
+    var g = ctx.createRadialGradient(cx - r * .35, cy - r * .4, r * .1, cx, cy, r);
+    g.addColorStop(0, st.a); g.addColorStop(1, st.b);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+    ctx.shadowColor = 'transparent';
+    if (highlight) { ctx.lineWidth = Math.max(2, r * .16); ctx.strokeStyle = th.win; ctx.beginPath(); ctx.arc(cx, cy, r + ctx.lineWidth * .4, 0, Math.PI * 2); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  // Letras arriba (A–T, sin I) y números a la izquierda (1–19). Se resalta la fila/columna de la casilla marcada.
+  function drawLabels(th) {
+    var c = metrics.cell, active = (drag && drag.lifted ? drag.cell : null) || pending || hover || (document.activeElement === canvas ? kbd : null);
+    ctx.save();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (var i = 0; i < boardN(); i++) {
+      var hiX = active && active.x === i, hiY = active && active.y === i;
+      ctx.font = (hiX ? '800 ' : '600 ') + Math.round(c * 0.5) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = hiX ? th.board.labelHi : th.board.label;
+      ctx.fillText(P.COLS.charAt(i), px(i), c * 0.45);
+      ctx.font = (hiY ? '800 ' : '600 ') + Math.round(c * 0.5) + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+      ctx.fillStyle = hiY ? th.board.labelHi : th.board.label;
+      ctx.fillText(String(i + 1), c * 0.45, px(i));
+    }
+    ctx.restore();
+  }
+
+  function render() {
+    if (!metrics.w) return;
+    layout();
+    var th = theme(), W = metrics.w, n = boardN(), i;
+    if (drag && drag.lifted) updateDragTarget();
+    if (settle && performance.now() - settle.t0 >= settle.dur) settle = null;
+    // fondo del tablero
+    var bg = ctx.createLinearGradient(0, 0, W, W);
+    bg.addColorStop(0, th.board.bg[0]); bg.addColorStop(1, th.board.bg[1]);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, W);
+    // líneas (con resplandor si el tema lo pide)
+    ctx.save();
+    ctx.strokeStyle = th.board.line; ctx.lineWidth = Math.max(1, metrics.cell * (th.board.lineGlow ? 0.05 : 0.04));
+    if (th.board.lineGlow) { ctx.shadowColor = th.board.lineGlow; ctx.shadowBlur = metrics.cell * 0.4; }
+    ctx.beginPath();
+    for (i = 0; i < n; i++) {
+      ctx.moveTo(px(0), px(i)); ctx.lineTo(px(n - 1), px(i));
+      ctx.moveTo(px(i), px(0)); ctx.lineTo(px(i), px(n - 1));
+    }
+    ctx.stroke(); ctx.restore();
+    // puntos estrella + centro
+    ctx.save(); ctx.fillStyle = th.board.star;
+    if (th.board.lineGlow) { ctx.shadowColor = th.board.lineGlow; ctx.shadowBlur = metrics.cell * 0.5; }
+    var stars = n === 13 ? [3, 6, 9] : n === 19 ? [3, 9, 15] : [], mid = (n - 1) / 2;
+    stars.forEach(function (a) { stars.forEach(function (b) {
+      ctx.beginPath(); ctx.arc(px(a), px(b), metrics.cell * (a === mid && b === mid ? 0.13 : 0.09), 0, Math.PI * 2); ctx.fill();
+    }); });
+    ctx.restore();
+    if (cfg.coords) drawLabels(th);
+    if (!state) { $('btnConfirm').hidden = true; return; }
+
+    // Regla de torneo: en la 2ª ficha del J1 se sombrea el cuadrado de 5x5 del centro (prohibido)
+    if (cfg.zone && !isOver() && state.options.tournamentRule && state.moves.length === 2) {
+      var c0 = P.center(state), half = metrics.cell * 0.5;
+      var x0 = px(c0 - 2) - half, y0 = px(c0 - 2) - half, side = metrics.cell * 5;
+      ctx.fillStyle = th.zone.fill; ctx.fillRect(x0, y0, side, side);
+      ctx.strokeStyle = th.zone.stroke; ctx.lineWidth = Math.max(2, metrics.cell * 0.06);
+      ctx.strokeRect(x0, y0, side, side);
+    }
+
+    var winSet = {};
+    if (state.winLine) state.winLine.forEach(function (c) { winSet[c.x + ',' + c.y] = 1; });
+    for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) {
+      var v = P.get(state, x, y);
+      if (v) drawStone(x, y, v, 1, !!winSet[x + ',' + y]);
+    }
+    // última jugada
+    if (state.lastMove && cfg.lastMove) {
+      var lm = state.lastMove, lv = P.get(state, lm.x, lm.y);
+      ctx.fillStyle = th.last.dot[lv];
+      ctx.beginPath(); ctx.arc(px(lm.x), px(lm.y), metrics.cell * 0.12, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = th.last.ring; ctx.lineWidth = Math.max(2, metrics.cell * 0.07);
+      ctx.beginPath(); ctx.arc(px(lm.x), px(lm.y), metrics.cell * 0.2, 0, Math.PI * 2); ctx.stroke();
+    }
+    // previsualización (mouse, o ficha pendiente del dedo)
+    var holding = !!(drag && drag.lifted), showPrev = !holding && !settle;
+    var pv = pending || hover;                                  // la pendiente manda; si no hay, la del mouse
+    if (showPrev && pv && canPlayNow() && P.get(state, pv.x, pv.y) === P.EMPTY && !P.validateMove(state, pv.x, pv.y)) {
+      drawStone(pv.x, pv.y, state.current, pending ? 0.74 : 0.5, false);    // semitransparente: se ve el lugar elegido antes de confirmar
+      if (pending) {
+        ctx.save(); ctx.strokeStyle = th.pendingRing; ctx.lineWidth = Math.max(2.5, metrics.cell * 0.09); ctx.setLineDash([metrics.cell * .16, metrics.cell * .1]);
+        ctx.beginPath(); ctx.arc(px(pv.x), px(pv.y), metrics.cell * 0.58, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+      }
+    }
+    if (holding) drawHeld(th);
+    else if (settle) drawSettle();
+    // cursor de teclado
+    if (document.activeElement === canvas && kbd && !holding) {
+      ctx.strokeStyle = th.kbd; ctx.lineWidth = Math.max(2, metrics.cell * 0.08);
+      ctx.beginPath(); ctx.arc(px(kbd.x), px(kbd.y), metrics.cell * 0.62, 0, Math.PI * 2); ctx.stroke();
+    }
+    updateHud();
+    var now = performance.now();
+    if (!animReq && ((drag && drag.lifted && now - drag.liftStart < 150) || settle)) animReq = requestAnimationFrame(function () { animReq = 0; render(); });
+  }
+
+  // Ficha en el aire: guías de fila/columna, la intersección donde caería y la ficha levantada sobre el dedo.
+  function drawHeld(th) {
+    var c = drag.cell, bad = !!dragError(c), n = boardN(), cell = metrics.cell, col = bad ? '#e5604f' : th.pendingRing;
+    if (cfg.guides) {
+      ctx.save();
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.5; ctx.lineWidth = Math.max(1.5, cell * 0.06); ctx.setLineDash([cell * 0.25, cell * 0.2]);
+      ctx.beginPath(); ctx.moveTo(px(0), px(c.y)); ctx.lineTo(px(n - 1), px(c.y)); ctx.moveTo(px(c.x), px(0)); ctx.lineTo(px(c.x), px(n - 1)); ctx.stroke();
+      ctx.restore();
+    }
+    if (!bad) drawStone(c.x, c.y, state.current, 0.4, false);
+    ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, cell * 0.07);
+    ctx.beginPath(); ctx.arc(px(c.x), px(c.y), cell * 0.56, 0, Math.PI * 2); ctx.stroke();
+    if (bad) { var q = cell * 0.22; ctx.beginPath(); ctx.moveTo(px(c.x) - q, px(c.y) - q); ctx.lineTo(px(c.x) + q, px(c.y) + q); ctx.moveTo(px(c.x) + q, px(c.y) - q); ctx.lineTo(px(c.x) - q, px(c.y) + q); ctx.stroke(); }
+    ctx.restore();
+    var pos = heldPos();
+    drawStonePx(pos.x, pos.y, state.current, bad ? 0.65 : 1, false, 1.28, 1);
+  }
+  function drawSettle() {
+    var k = Math.min(1, (performance.now() - settle.t0) / settle.dur), e = easeOut(k);
+    var x = settle.x0 + (px(settle.c.x) - settle.x0) * e, y = settle.y0 + (px(settle.c.y) - settle.y0) * e;
+    drawStonePx(x, y, settle.player, 0.85 + 0.15 * e, false, 1.28 - 0.28 * e, 1 - e);
+  }
+
+  /* ---------- Temas ---------- */
+  var themeId = (function () {
+    try { var v = localStorage.getItem('pente.theme'); if (v && window.Themes.byId[v]) return v; } catch (e) {}
+    return window.Themes.defaultId;
+  })();
+  function theme() { return window.Themes.byId[themeId]; }
+  function applyThemeCss() {
+    var css = theme().css; for (var k in css) document.documentElement.style.setProperty(k, css[k]);
+    document.documentElement.setAttribute('data-theme', themeId);
+  }
+  function setTheme(id) {
+    if (!window.Themes.byId[id]) return;
+    themeId = id; applyThemeCss();
+    try { localStorage.setItem('pente.theme', id); } catch (e) {}
+    document.querySelectorAll('.theme-opt').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.id === id ? 'true' : 'false'); });
+    render();
+  }
+  function buildThemePicker() {
+    var box = $('themePicker'); box.innerHTML = '';
+    window.Themes.list.forEach(function (th) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'theme-opt'; b.dataset.id = th.id;
+      var sw = document.createElement('span'); sw.className = 'swatch';
+      sw.style.background = 'linear-gradient(135deg,' + th.board.bg[0] + ',' + th.board.bg[1] + ')';
+      [1, 2].forEach(function (p) {
+        var d = document.createElement('i'); d.style.background = 'radial-gradient(circle at 35% 30%,' + th.stones[p].a + ',' + th.stones[p].b + ')';
+        if (th.stones[p].glow) d.style.boxShadow = '0 0 10px ' + th.stones[p].glow; sw.appendChild(d);
+      });
+      var lb = document.createElement('span'); lb.textContent = t('theme.' + th.id);
+      b.appendChild(sw); b.appendChild(lb);
+      b.addEventListener('click', function () { setTheme(th.id); });
+      box.appendChild(b);
+    });
+    setTheme(themeId);
+  }
+
+  /* ---------- HUD ---------- */
+  function pips(n) { var s = ''; for (var i = 0; i < 5; i++) s += '<span class="pip' + (i < n ? ' on' : '') + '"></span>'; return s; }
+  function updateHud() {
+    if (!state) return;
+    [1, 2].forEach(function (p) {
+      var el = $('player' + p);
+      el.classList.toggle('active', !isOver() && state.current === p);
+      el.classList.toggle('offline', online.active && !online.connected[p]);
+      $('pname' + p).textContent = (names[p] || '…') + (online.active && online.me === p ? ' ' + t('online.you') : '');
+      $('caps' + p).innerHTML = pips(state.captures[p]) + '<span>' + state.captures[p] + '/5</span>';
+    });
+    if (!isOver() && !$('status').dataset.toast) $('status').textContent = turnText();
+    $('btnConfirm').hidden = !(pending && cfg.confirm === 'button' && canPlayNow() && !(drag && drag.lifted));
+  }
+  function setStatus(msg, isToast) {
+    var el = $('status'); clearTimeout(toastTimer);
+    if (!msg) { delete el.dataset.toast; if (state && !isOver()) el.textContent = turnText(); else if (!state) el.textContent = ''; return; }
+    el.dataset.toast = '1'; el.innerHTML = '<span class="toast"></span>'; el.firstChild.textContent = msg;
+    toastTimer = setTimeout(function () { delete el.dataset.toast; if (state && !isOver()) el.textContent = turnText(); }, 2600);
+  }
+
+  /* ---------- Overlays ---------- */
+  function closeAll() { document.querySelectorAll('.overlay').forEach(function (o) { o.classList.remove('open'); }); }
+  function open(id) {
+    closeAll();
+    if (id === 'menuOverlay') $('btnResume').hidden = !(state && !isOver());
+    $(id).classList.add('open');
+  }
+  function showEnd() {
+    if (!state || !isOver()) return;
+    var tx;
+    if (online.active && online.over && (online.over.reason === 'resign' || online.over.reason === 'forfeit')) {
+      var w = online.over.winner, l = w === 1 ? 2 : 1;
+      tx = t(online.over.reason === 'resign' ? 'end.winResign' : 'end.winForfeit', { name: names[w], loser: names[l] });
+    } else if (state.status === 'draw') tx = t('end.draw');
+    else {
+      var both = state.winReasons.length === 2;
+      tx = both ? t('end.winBoth', { name: names[state.winner] })
+        : state.winReasons[0] === 'captures' ? t('end.winCaptures', { name: names[state.winner] })
+        : t('end.winLine', { name: names[state.winner] });
+    }
+    $('endText').textContent = tx; updateRematchUi(); open('endOverlay');
+  }
+  function updateRematchUi() {
+    var btn = $('btnRematch'), hint = $('endHint'), leave = $('btnEndMenu');
+    if (!online.active) { btn.disabled = false; btn.textContent = t('end.rematch'); hint.textContent = ''; leave.textContent = t('end.toMenu'); return; }
+    var me = online.me, rival = me === 1 ? 2 : 1;
+    btn.disabled = !!online.rematch[me];
+    btn.textContent = online.rematch[me] ? t('online.rematchWait') : t('end.rematch');
+    hint.textContent = (!online.rematch[me] && online.rematch[rival]) ? t('online.rematchRival', { name: names[rival] }) : '';
+    leave.textContent = t('online.leave');
+  }
+  function rematch() {
+    state = P.createGame({ size: state ? state.size : settings.size, tournamentRule: settings.tournamentRule, exactFive: settings.exactFive });
+    hover = pending = drag = settle = null; kbd = { x: centerIdx(), y: centerIdx() }; closeAll(); setStatus(''); render();
+  }
+
+  /* ---------- Online ---------- */
+  var SESSION_KEY = 'pente.session';
+  function qs(name) { try { return new URLSearchParams(location.search).get(name); } catch (e) { return null; } }
+  function serverUrl() {
+    var q = qs('server');
+    if (q && /^wss?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(q)) return q;     // ?server= solo vale para pruebas locales
+    return String(window.PENTE_SERVER || '').trim();
+  }
+  function saveSession() { try { localStorage.setItem(SESSION_KEY, JSON.stringify({ code: online.code, token: online.token, url: online.url })); } catch (e) {} }
+  function loadSession() { try { var v = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); return v && v.code && v.token ? v : null; } catch (e) { return null; } }
+  function clearSession() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+  function onlineMsg(txt) { $('onlineMsg').textContent = txt || ''; }
+  function myName() { var n = ($('onName').value || '').trim(); try { if (n) localStorage.setItem('pente.name', n); } catch (e) {} return n; }
+  function inviteLink() {
+    var u = location.href.split(/[?#]/)[0] + '?sala=' + online.code, q = qs('server');
+    if (q && serverUrl() === q) u += '&server=' + encodeURIComponent(q);
+    return u;
+  }
+  function updateOnlineButtons() { $('btnRestart').textContent = online.active ? t('hud.resign') : t('hud.restart'); }
+
+  function ensureNet(url) {
+    if (online.net) return;
+    online.url = url;
+    online.net = window.PenteNet.connect(url, {
+      onState: function (s) {
+        online.conn = s;
+        if (!online.active && online.intent) onlineMsg(s === 'open' ? '' : s === 'connecting' ? t('online.connecting') : t('online.stillTrying'));
+        if (online.active) { setStatus(''); updateHud(); }
+      },
+      onOpen: function () {
+        if (online.token && online.code) { online.rejoining = true; online.net.send({ t: 'rejoin', code: online.code, token: online.token }); }
+        else if (online.intent) online.net.send(online.intent);
+      },
+      onMessage: onNetMessage
+    });
+  }
+
+  function startOnline(intent) {
+    var url = serverUrl();
+    if (!url) { onlineMsg(t('online.noServer')); return; }
+    intent.name = myName();
+    online.intent = intent; online.token = ''; online.code = '';
+    onlineMsg(t('online.connecting'));
+    if (!online.net) ensureNet(url);
+    else if (online.net.isOpen()) online.net.send(intent);
+  }
+
+  function leaveOnline(resign) {
+    var wasActive = online.active, net = online.net;
+    if (net) {
+      if (resign && wasActive && state && !isOver() && names[2] && net.isOpen()) net.send({ t: 'resign' });
+      net.close();
+    }
+    clearTimeout(online.awaitTimer); clearClaim();
+    online.net = null; online.active = false; online.conn = 'closed'; online.code = ''; online.token = ''; online.me = 0;
+    online.intent = null; online.rejoining = false; online.over = null; online.awaiting = false; online.rivalLeftAt = 0;
+    online.connected = { 1: true, 2: true }; online.rematch = { 1: false, 2: false };
+    clearSession(); updateOnlineButtons(); updateRematchUi();
+    if (wasActive) { state = null; hover = pending = null; setStatus(''); render(); }
+  }
+
+  function onNetMessage(m) {
+    switch (m.t) {
+      case 'joined':
+        online.active = true; online.code = m.code; online.token = m.token; online.me = m.you;
+        online.intent = null; online.rejoining = false; saveSession(); onlineMsg(''); updateOnlineButtons();
+        break;
+      case 'sync': applySync(m); break;
+      case 'move': applyRemoteMove(m); break;
+      case 'presence': online.connected = m.connected; trackRival(0); updateHud(); break;
+      case 'over':
+        online.over = { winner: m.winner, reason: m.reason }; online.awaiting = false; clearClaim(); drag = settle = null;
+        if (m.reason === 'resign' || m.reason === 'forfeit') sfx(m.winner === online.me ? 'win' : 'lose');   // si terminó por jugada, el sonido ya sonó
+        render(); setTimeout(showEnd, 450); break;
+      case 'rematch': online.rematch = m.votes; updateRematchUi(); break;
+      case 'error': onNetError(m); break;
+    }
+  }
+
+  function applySync(m) {
+    var wasOver = !!state && online.active && isOver();
+    var g = P.createGame(m.opts);
+    for (var i = 0; i < m.moves.length; i++) {
+      var r = P.playMove(g, m.moves[i][0], m.moves[i][1]);
+      if (!r.ok) break;
+      g = r.state;
+    }
+    state = g; online.me = m.you; online.over = m.over || null; online.connected = m.connected;
+    online.rematch = m.rematch || { 1: false, 2: false }; online.awaiting = false;
+    names[1] = m.names[1] || t('player.1'); names[2] = m.names[2] || '';
+    hover = pending = drag = settle = null; kbd = { x: centerIdx(), y: centerIdx() };
+    trackRival(m.disconnectedFor ? m.disconnectedFor[m.you === 1 ? 2 : 1] : 0);
+    setStatus(''); render();
+    if (!m.names[2]) showWait();
+    else if (online.over) { open('endOverlay'); showEnd(); }
+    else {
+      closeAll(); updateRematchUi();
+      if (wasOver && state.moves.length === 0) setStatus(t('toast.rematch', { n: online.me }), true);
+    }
+  }
+
+  function applyRemoteMove(m) {
+    if (!state) return;
+    online.awaiting = false;
+    if (m.n !== state.moves.length + 1) { online.net.send({ t: 'resync' }); return; }
+    var mover = state.current, r = P.playMove(state, m.x, m.y);
+    if (!r.ok) { online.net.send({ t: 'resync' }); return; }
+    state = r.state; pending = hover = drag = settle = null;
+    announceCaptures(mover, r.captured);
+    moveFeedback(r.captured, state.status !== 'playing', state.winner);
+    render();
+  }
+
+  // Rival desconectado: tras 60 s aparece "Reclamar victoria" (el servidor vuelve a comprobar el tiempo).
+  function trackRival(alreadyOfflineMs) {
+    var rival = online.me === 1 ? 2 : 1;
+    if (online.connected[rival]) { online.rivalLeftAt = 0; clearClaim(); return; }
+    if (!online.rivalLeftAt) online.rivalLeftAt = Date.now() - (alreadyOfflineMs || 0);
+    clearTimeout(online.claimTimer);
+    var left = 60000 - (Date.now() - online.rivalLeftAt);
+    var show = function () { $('btnClaim').hidden = isOver(); };
+    if (left <= 0) show(); else online.claimTimer = setTimeout(show, left);
+  }
+  function clearClaim() { clearTimeout(online.claimTimer); $('btnClaim').hidden = true; }
+
+  function showWait() {
+    $('roomCode').textContent = online.code; $('waitMsg').textContent = '';
+    $('btnShare').hidden = !navigator.share;
+    open('waitOverlay');
+  }
+
+  function onNetError(m) {
+    online.awaiting = false;
+    var txt = t(m.code === 'ILLEGAL' ? 'err.' + m.detail : 'err.' + m.code);
+    if ((m.code === 'ROOM_NOT_FOUND' || m.code === 'BAD_TOKEN') && online.rejoining) {
+      var wasActive = online.active;                 // la sala vieja ya no existe (el servidor se reinició o venció)
+      leaveOnline(false);
+      if (wasActive) { onlineMsg(t('online.roomGone')); open('onlineOverlay'); }
+      return;
+    }
+    if (online.active) setStatus(txt, true); else { online.intent = null; onlineMsg(txt); }
+  }
+
+  function initOnline() {
+    var url = serverUrl();
+    try { $('onName').value = localStorage.getItem('pente.name') || ''; } catch (e) {}
+    if (url) { try { fetch(window.PenteNet.httpBase(url) + '/health', { mode: 'no-cors' }).catch(function () {}); } catch (e) {} }   // despierta al servidor
+    var code = qs('sala'), ses = loadSession();
+    if (code) { try { history.replaceState(null, '', location.href.replace(/([?&])sala=[^&#]*&?/, '$1').replace(/[?&]$/, '')); } catch (e) {} }
+    code = code ? String(code).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5) : '';
+    if (url && ses && ses.url === url && (!code || ses.code === code)) { online.code = ses.code; online.token = ses.token; ensureNet(url); }   // volver a la sala donde estaba
+    else if (code) { $('onCode').value = code; onlineMsg(url ? '' : t('online.noServer')); open('onlineOverlay'); }
+  }
+
+  /* ---------- Textos estáticos (i18n) ---------- */
+  function applyI18n() {
+    document.title = t('app.title');
+    document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+    canvas.setAttribute('aria-label', t('a11y.board'));
+    var ol = $('rulesList'); ol.innerHTML = '';
+    for (var i = 1; i <= 7; i++) { var li = document.createElement('li'); li.textContent = t('rules.' + i); ol.appendChild(li); }
+  }
+
+  /* ---------- Eventos ---------- */
+  $('btnStart').addEventListener('click', startGame);
+  $('btnResume').addEventListener('click', closeAll);
+  $('btnMenu').addEventListener('click', function () { open('menuOverlay'); });
+  $('btnRules').addEventListener('click', function () { open('rulesOverlay'); });
+  $('btnRulesClose').addEventListener('click', function () { open('menuOverlay'); });
+  $('btnRestart').addEventListener('click', function () {
+    if (online.active) { if (!isOver() && online.net && confirm(t('online.resignConfirm'))) online.net.send({ t: 'resign' }); return; }
+    if (!state || state.moves.length === 0 || state.status !== 'playing' || confirm(t('confirm.restart'))) rematch();
+  });
+  $('btnRematch').addEventListener('click', function () {
+    if (online.active) { if (online.net && online.net.send({ t: 'rematch' })) { online.rematch[online.me] = true; updateRematchUi(); } return; }
+    rematch();
+  });
+  $('btnEndMenu').addEventListener('click', function () { if (online.active) leaveOnline(false); open('menuOverlay'); });
+  $('btnClaim').addEventListener('click', function () { if (online.net) online.net.send({ t: 'claimWin' }); });
+  $('btnOnline').addEventListener('click', function () {
+    if (online.net) { if (online.active && !isOver() && names[2] && !confirm(t('online.leaveConfirm'))) return; leaveOnline(true); }
+    onlineMsg(serverUrl() ? '' : t('online.noServer')); open('onlineOverlay');
+  });
+  $('btnOnlineBack').addEventListener('click', function () { if (online.net && !online.active) leaveOnline(false); open('menuOverlay'); });
+  $('btnCreateRoom').addEventListener('click', function () {
+    startOnline({ t: 'create', opts: { tournamentRule: $('optTournament').checked, exactFive: $('optExact').checked, size: settings.size } });
+  });
+  function joinFromInput() {
+    var code = ($('onCode').value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 5) { onlineMsg(t('err.ROOM_NOT_FOUND')); return; }
+    startOnline({ t: 'join', code: code });
+  }
+  $('btnJoinRoom').addEventListener('click', joinFromInput);
+  $('onCode').addEventListener('keydown', function (e) { if (e.key === 'Enter') joinFromInput(); });
+  $('btnWaitCancel').addEventListener('click', function () { leaveOnline(false); open('menuOverlay'); });
+  $('btnCopyLink').addEventListener('click', function () {
+    var link = inviteLink();
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(function () { $('waitMsg').textContent = t('online.copied'); }, function () { $('waitMsg').textContent = link; });
+    else $('waitMsg').textContent = link;
+  });
+  $('btnShare').addEventListener('click', function () { try { navigator.share({ title: 'Pente', url: inviteLink() }); } catch (e) {} });
+  // Tamaño del tablero (13 o 19): vale para la próxima partida o sala
+  function syncSizePicker() { document.querySelectorAll('#sizePicker .seg-opt').forEach(function (b) { b.setAttribute('aria-pressed', String(parseInt(b.dataset.size, 10) === settings.size)); }); }
+  document.querySelectorAll('#sizePicker .seg-opt').forEach(function (b) {
+    b.addEventListener('click', function () {
+      settings.size = parseInt(b.dataset.size, 10);
+      try { localStorage.setItem('pente.size', String(settings.size)); } catch (e) {}
+      syncSizePicker(); render();
+    });
+  });
+  $('btnConfirm').addEventListener('click', function () { if (pending && !isOver()) tryMove(pending.x, pending.y); });
+  // Sonido: los navegadores solo dejan activarlo después de un toque o clic del usuario
+  ['pointerdown', 'touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { if (window.PenteSound) window.PenteSound.unlock(); }, true); });
+  /* ---------- Configuración ---------- */
+  var S = window.PenteSound;
+  function confirmHintText() { return t('cfg.confirm.' + cfg.confirm + 'Hint'); }
+  function syncCfgUi() {
+    document.querySelectorAll('.seg[data-cfg]').forEach(function (g) {
+      var k = g.getAttribute('data-cfg');
+      g.querySelectorAll('.seg-opt').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.val === cfg[k])); });
+    });
+    document.querySelectorAll('input[type=checkbox][data-cfg]').forEach(function (i) { i.checked = !!cfg[i.getAttribute('data-cfg')]; });
+    $('confirmHint').textContent = confirmHintText();
+    $('optSound').checked = S ? S.isEnabled() : false;
+    $('optVibrate').checked = S ? S.vibrateOn() : false;
+    var vol = S ? Math.round(S.getVolume() * 100) : 0;
+    $('cfgVolume').value = vol; $('cfgVolumeVal').textContent = vol + '%';
+    $('cfgVolume').disabled = !(S && S.isEnabled());
+  }
+  function cfgChanged(key) {
+    if (key === 'confirm') { pending = hover = null; }           // al cambiar de modo se descarta la ficha a medio confirmar
+    saveCfg(); syncCfgUi(); render();
+  }
+  document.querySelectorAll('.seg[data-cfg] .seg-opt').forEach(function (b) {
+    b.addEventListener('click', function () { var k = b.parentNode.getAttribute('data-cfg'); cfg[k] = b.dataset.val; cfgChanged(k); });
+  });
+  document.querySelectorAll('input[type=checkbox][data-cfg]').forEach(function (i) {
+    i.addEventListener('change', function () { var k = i.getAttribute('data-cfg'); cfg[k] = i.checked; cfgChanged(k); });
+  });
+  $('optSound').addEventListener('change', function () { if (!S) return; S.setEnabled($('optSound').checked); syncCfgUi(); sfx('place'); });
+  $('optVibrate').addEventListener('change', function () { if (!S) return; S.setVibrate($('optVibrate').checked); syncCfgUi(); buzz(30); });
+  $('cfgVolume').addEventListener('input', function () { if (!S) return; S.setVolume($('cfgVolume').value / 100); $('cfgVolumeVal').textContent = $('cfgVolume').value + '%'; });
+  $('cfgVolume').addEventListener('change', function () { sfx('place'); });       // al soltar el deslizador suena una muestra
+  function showTab(id) {
+    document.querySelectorAll('#cfgTabs .tab').forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.tab === id)); });
+    document.querySelectorAll('.tabpanel').forEach(function (p) { p.hidden = p.id !== 'tab-' + id; });
+    try { sessionStorage.setItem('pente.tab', id); } catch (e) {}
+  }
+  document.querySelectorAll('#cfgTabs .tab').forEach(function (b) { b.addEventListener('click', function () { showTab(b.dataset.tab); }); });
+  $('btnSettings').addEventListener('click', function () {
+    var tab = 'sound'; try { tab = sessionStorage.getItem('pente.tab') || 'sound'; } catch (e) {}
+    syncCfgUi(); showTab(tab); open('settingsOverlay');
+  });
+  $('btnSettingsBack').addEventListener('click', function () { open('menuOverlay'); });
+  $('btnCfgReset').addEventListener('click', function () {
+    if (!confirm(t('cfg.resetConfirm'))) return;
+    for (var k in CFG_DEFAULTS) cfg[k] = CFG_DEFAULTS[k];
+    pending = hover = null; saveCfg();
+    if (S) { S.setEnabled(true); S.setVolume(0.8); S.setVibrate(true); }
+    setTheme(window.Themes.defaultId);
+    syncCfgUi(); render(); sfx('place');
+  });
+  window.addEventListener('resize', resize);
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(canvas);
+  canvas.addEventListener('focus', render); canvas.addEventListener('blur', render);
+
+  applyI18n(); buildThemePicker(); syncSizePicker(); resize(); open('menuOverlay'); initOnline();
+  window.__pente = { get state() { return state; }, get online() { return online; }, get pending() { return pending; }, get settings() { return settings; }, get cfg() { return cfg; }, tryMove: tryMove, startGame: startGame };  // utilidad para pruebas manuales
+})();
+</script>
+<script>
+/* Registro del service worker. Solo funciona servido por http(s); abriendo el archivo directo se ignora. */
+(function () {
+  'use strict';
+  if (!('serviceWorker' in navigator) || location.protocol.indexOf('http') !== 0) return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () { /* sin SW el juego funciona igual */ });
+  });
+})();
+</script>
+</body>
+</html>
