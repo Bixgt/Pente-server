@@ -11,6 +11,7 @@
  * Protocolo (JSON). Cliente -> servidor:
  *   {t:'create', name, opts:{tournamentRule, exactFive, size: 13|19, public: bool}}   {t:'join', code, name}   {t:'rejoin', code, token}
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
+ *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
  *   {t:'move', x, y}  {t:'resign'}  {t:'rematch'}  {t:'claimWin'}  {t:'resync'}  {t:'ping'}
  * Servidor -> cliente:
  *   {t:'joined', code, token, you}   (espectador: {t:'joined', code, you:0, spectator:true}, sin token)
@@ -34,10 +35,16 @@ const FORFEIT_AFTER_MS = 60 * 1000;           // el rival puede reclamar victori
 const ROOM_IDLE_TTL_MS = 2 * 60 * 60 * 1000;  // sala sin actividad: se borra
 const HEARTBEAT_MS = 25 * 1000;
 const MAX_MSGS_PER_SEC = 12;
+const MAX_CHAT = 200;                         // caracteres por mensaje de chat
+const CHAT_HISTORY = 50;                      // mensajes que se recuerdan por sala (para el que entra tarde)
+const CHAT_GAP_MS = 700;                      // mínimo entre dos mensajes de la misma persona
 
 function cleanName(s, fallback) {
   s = String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, MAX_NAME);
   return s || fallback;
+}
+function cleanChat(s) {
+  return String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_CHAT);
 }
 function newCode(rooms) {
   for (let tries = 0; tries < 50; tries++) {
@@ -108,7 +115,7 @@ function createPenteServer(config) {
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
     const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19 };   // solo 13 o 19: nada más pasa
-    const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now() };
+    const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
     room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0 };
@@ -128,7 +135,7 @@ function createPenteServer(config) {
     attach(ws, room, 2); touch(room);
     send(ws, { t: 'joined', code: room.code, token, you: 2 });
     // el creador recibe la foto completa (ahora hay rival); el que entra también
-    send(ws, snapshot(room, 2));
+    send(ws, snapshot(room, 2)); sendChatLog(ws, room);
     send(room.seats[1].ws, snapshot(room, 1));
   }
 
@@ -141,7 +148,7 @@ function createPenteServer(config) {
     if (p.ws && p.ws !== ws) { try { p.ws.close(4000, 'replaced'); } catch (e) {} }   // la sesión nueva reemplaza a la vieja
     attach(ws, room, seat); touch(room);
     send(ws, { t: 'joined', code: room.code, token: p.token, you: seat });
-    send(ws, snapshot(room, seat));
+    send(ws, snapshot(room, seat)); sendChatLog(ws, room);
     const other = room.seats[seat === 1 ? 2 : 1];
     if (other) send(other.ws, { t: 'presence', connected: connectedMap(room) });
     toSpectators(room, { t: 'presence', connected: connectedMap(room) });
@@ -219,9 +226,26 @@ function createPenteServer(config) {
     if (!room.seats[2]) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
     if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
     ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);
-    send(ws, { t: 'joined', code: room.code, you: 0, spectator: true });
-    send(ws, snapshot(room, 0));
+    ws.cid = 's' + (++room.specSeq); ws.name = cleanName(msg.name, 'Espectador');
+    send(ws, { t: 'joined', code: room.code, you: 0, spectator: true, id: ws.cid });
+    send(ws, snapshot(room, 0)); sendChatLog(ws, room);
     announceSpectators(room);
+  }
+
+
+  /* ---------- Chat (jugadores y espectadores comparten la sala) ---------- */
+  function sendChatLog(ws, room) { if (room.chat.length) send(ws, { t: 'chatlog', msgs: room.chat }); }
+  function onChat(ws, msg) {
+    const room = ws.room; if (!room) return send(ws, { t: 'error', code: 'NOT_IN_ROOM' });
+    const text = cleanChat(msg.text); if (!text) return;
+    const now = Date.now();
+    if (ws.lastChat && now - ws.lastChat < CHAT_GAP_MS) return send(ws, { t: 'error', code: 'CHAT_RATE' });
+    ws.lastChat = now;
+    const seat = ws.spectator ? 0 : ws.seat;
+    const m = { id: seat ? 'p' + seat : ws.cid, name: seat ? room.seats[seat].name : ws.name, seat, text, n: ++room.chatSeq };
+    room.chat.push(m); if (room.chat.length > CHAT_HISTORY) room.chat.shift();
+    touch(room);
+    broadcast(room, Object.assign({ t: 'chat' }, m));
   }
 
   /* ---------- Conexiones ---------- */
@@ -241,6 +265,7 @@ function createPenteServer(config) {
         case 'rejoin': return onRejoin(ws, msg);
         case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
         case 'spectate': return onSpectate(ws, msg);
+        case 'chat': return onChat(ws, msg);
         case 'move': return onMove(ws, msg);
         case 'resign': return onResign(ws);
         case 'rematch': return onRematch(ws);

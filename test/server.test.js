@@ -409,3 +409,40 @@ test('la revancha también le llega al espectador, y hay tope de espectadores', 
   assert.equal((await last.type('error')).code, 'SPECTATORS_FULL');
   await env.teardown();
 });
+
+/* ---------- Chat ---------- */
+test('chat: lo reciben jugadores y espectadores, con nombre, rol y número de orden', async () => {
+  const env = await setup();
+  const { a, b, code } = await pair(env, { public: true });
+  const v = await env.mk(); v.send({ t: 'spectate', code, name: 'Vero' }); await v.type('joined'); await v.type('sync');
+  a.send({ t: 'chat', text: '  hola   a todos  ' });
+  for (const c of [a, b, v]) { const m = await c.type('chat'); assert.equal(m.text, 'hola a todos'); assert.equal(m.name, 'Ana'); assert.equal(m.id, 'p1'); assert.equal(m.seat, 1); assert.equal(m.n, 1); }
+  v.send({ t: 'chat', text: 'buena partida' });
+  for (const c of [a, b, v]) { const m = await c.type('chat'); assert.equal(m.name, 'Vero'); assert.equal(m.seat, 0); assert.match(m.id, /^s\d+$/); assert.equal(m.n, 2); }
+  await env.teardown();
+});
+
+test('chat: límites (vacío, largo, ráfaga), sin sala, y saltos de línea/control se limpian', async () => {
+  const env = await setup();
+  const lone = await env.mk(); lone.send({ t: 'chat', text: 'hola' }); assert.equal((await lone.type('error')).code, 'NOT_IN_ROOM');
+  const { a, b } = await pair(env);
+  a.send({ t: 'chat', text: '   ' }); a.send({ t: 'chat', text: 'x'.repeat(500) });
+  const m = await b.type('chat'); assert.equal(m.text.length, 200);                   // el vacío se ignoró, el largo se recortó
+  a.send({ t: 'chat', text: 'otra' }); assert.equal((await a.type('error')).code, 'CHAT_RATE');   // demasiado seguido
+  await new Promise((r) => setTimeout(r, 800));
+  a.send({ t: 'chat', text: 'linea1\nlinea2\u0007<b>' }); await a.type('chat');
+  const m2 = await b.type('chat'); assert.equal(m2.text, 'linea1 linea2 <b>');       // el cliente lo muestra como texto, nunca como HTML
+  await env.teardown();
+});
+
+test('chat: quien entra tarde recibe el historial; el espectador y el que reconecta también', async () => {
+  const env = await setup();
+  const { a, b, code, ja } = await pair(env, { public: true });
+  a.send({ t: 'chat', text: 'uno' }); await a.type('chat'); await new Promise((r) => setTimeout(r, 750));
+  b.send({ t: 'chat', text: 'dos' }); await b.type('chat');
+  const v = await env.mk(); v.send({ t: 'spectate', code }); await v.type('joined'); await v.type('sync');
+  const log = await v.type('chatlog'); assert.deepEqual(log.msgs.map((m) => m.text), ['uno', 'dos']);
+  await a.close(); const a2 = await env.mk(); a2.send({ t: 'rejoin', code, token: ja.token }); await a2.type('joined'); await a2.type('sync');
+  assert.equal((await a2.type('chatlog')).msgs.length, 2);
+  await env.teardown();
+});
