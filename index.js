@@ -11,6 +11,7 @@
  * Protocolo (JSON). Cliente -> servidor:
  *   {t:'create', name, opts:{tournamentRule, exactFive, size: 13|19, public: bool}}   {t:'join', code, name}   {t:'rejoin', code, token}
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
+ *   {t:'lobby', on, name}  (entrar/salir del chat del lobby)   {t:'lchat', text, name}  (máx. 160 caracteres, 1 cada 1,2 s, sin links)
  *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
  *   {t:'move', x, y}  {t:'resign'}  {t:'rematch'}  {t:'claimWin'}  {t:'resync'}  {t:'ping'}
  * Servidor -> cliente:
@@ -39,6 +40,7 @@ const TURN_MS = 60 * 1000;                   // reloj: tiempo máximo por jugada
 const MAX_MSGS_PER_SEC = 12;
 const MAX_CHAT = 200;                         // caracteres por mensaje de chat
 const CHAT_HISTORY = 50;                      // mensajes que se recuerdan por sala (para el que entra tarde)
+const LOBBY_HISTORY = 40, LOBBY_GAP_MS = 1200, LOBBY_MAX = 160;   // chat del lobby: se recuerdan 40, 1 mensaje cada 1,2 s, 160 caracteres
 const CHAT_GAP_MS = 700;                      // mínimo entre dos mensajes de la misma persona
 
 function cleanName(s, fallback) {
@@ -289,6 +291,32 @@ function createPenteServer(config) {
     broadcast(room, Object.assign({ t: 'chat' }, m));
   }
 
+  /* ---------- Chat del lobby (la pantalla de salas públicas) ---------- */
+  const lobby = { log: [], seq: 0, members: new Set(), last: null };
+  function lobbySend(ws, o) { send(ws, o); }
+  function lobbyCount() { lobby.members.forEach((w) => send(w, { t: 'lobbyn', n: lobby.members.size })); }
+  function lobbyLeave(ws) { if (ws.lobby) { ws.lobby = false; lobby.members.delete(ws); lobbyCount(); } }
+  function onLobby(ws, msg) {
+    if (msg.on === false) return lobbyLeave(ws);
+    if (ws.room) return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+    ws.lname = cleanName(msg.name, 'Invitado');
+    if (!ws.lobby) { ws.lobby = true; ws.lid = 'l' + (++lobby.seq); lobby.members.add(ws); }
+    send(ws, { t: 'lchatlog', msgs: lobby.log, me: ws.lid }); lobbyCount();
+  }
+  function onLobbyChat(ws, msg) {
+    if (!ws.lobby) return send(ws, { t: 'error', code: 'NOT_IN_LOBBY' });
+    const text = cleanChat(msg.text).slice(0, LOBBY_MAX); if (!text) return;
+    if (/https?:\/\/|www\.|\b[a-z0-9-]+\.(com|net|org|io|gg|ly|me|xyz|ar)\b/i.test(text)) return send(ws, { t: 'error', code: 'LINK_BLOCKED' });   // sin links: el lobby es público
+    const now = Date.now();
+    if (ws.lastLobby && now - ws.lastLobby < LOBBY_GAP_MS) return send(ws, { t: 'error', code: 'CHAT_RATE' });
+    if (ws.lastLobbyText === text && now - ws.lastLobby < 30000) return send(ws, { t: 'error', code: 'CHAT_RATE' });   // el mismo mensaje repetido
+    ws.lastLobby = now; ws.lastLobbyText = text;
+    if (msg.name) ws.lname = cleanName(msg.name, ws.lname || 'Invitado');
+    const m = { id: ws.lid, name: ws.lname || 'Invitado', text, n: ++lobby.seq, at: now };
+    lobby.log.push(m); if (lobby.log.length > LOBBY_HISTORY) lobby.log.shift();
+    lobby.members.forEach((w) => send(w, Object.assign({ t: 'lchat' }, m)));
+  }
+
   /* ---------- Conexiones ---------- */
   wss.on('connection', (ws) => {
     ws.isAlive = true; ws.room = null; ws.seat = 0; ws.spectator = false; ws.bucket = { n: 0, t: Date.now() };
@@ -301,12 +329,14 @@ function createPenteServer(config) {
       let msg; try { msg = JSON.parse(String(data)); } catch (e) { return send(ws, { t: 'error', code: 'BAD_REQUEST' }); }
       if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       switch (msg.t) {
-        case 'create': return onCreate(ws, msg);
-        case 'join': return onJoin(ws, msg);
-        case 'rejoin': return onRejoin(ws, msg);
+        case 'create': lobbyLeave(ws); return onCreate(ws, msg);
+        case 'join': lobbyLeave(ws); return onJoin(ws, msg);
+        case 'rejoin': lobbyLeave(ws); return onRejoin(ws, msg);
         case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
-        case 'spectate': return onSpectate(ws, msg);
+        case 'spectate': lobbyLeave(ws); return onSpectate(ws, msg);
         case 'chat': return onChat(ws, msg);
+        case 'lobby': return onLobby(ws, msg);
+        case 'lchat': return onLobbyChat(ws, msg);
         case 'move': return onMove(ws, msg);
         case 'resign': return onResign(ws);
         case 'rematch': return onRematch(ws);
@@ -317,6 +347,7 @@ function createPenteServer(config) {
       }
     });
     ws.on('close', () => {
+      lobbyLeave(ws);
       const room = ws.room; if (!room) return;
       if (ws.spectator) { room.spectators.delete(ws); announceSpectators(room); return; }
       const p = room.seats[ws.seat];
