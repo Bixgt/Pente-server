@@ -13,6 +13,7 @@
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
  *   {t:'lobby', on, name}  (entrar/salir del chat del lobby)   {t:'lchat', text, name}  (máx. 160 caracteres, 1 cada 1,2 s, sin links)
  *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
+ *   {t:'seat', seat}   (4 jugadores, antes de empezar: pasarse a un asiento libre = elegir equipo)
  *   {t:'move', x, y}  {t:'resign'}  {t:'rematch'}  {t:'claimWin'}  {t:'resync'}  {t:'ping'}
  * Servidor -> cliente:
  *   {t:'joined', code, token, you}   (espectador: {t:'joined', code, you:0, spectator:true}, sin token)
@@ -270,6 +271,18 @@ function createPenteServer(config) {
     seatList(room).forEach((s) => { if (s !== seat && room.seats[s]) send(room.seats[s].ws, snapshot(room, s)); });
   }
 
+  /* 4 jugadores: antes de que empiece, cada uno puede pasarse a un asiento libre (así elige equipo: 1 y 3 contra 2 y 4). */
+  function onSeat(ws, msg) {
+    const room = inRoom(ws); if (!room) return;
+    if (room.opts.players !== 4 || isFull(room) || room.moves.length) return send(ws, { t: 'error', code: 'CANNOT_MOVE_SEAT' });
+    const to = Math.floor(Number(msg.seat)), from = ws.seat;
+    if (!seatList(room).includes(to) || to === from) return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+    if (room.seats[to]) return send(ws, { t: 'error', code: 'SEAT_TAKEN' });
+    room.seats[to] = room.seats[from]; room.seats[from] = null; ws.seat = to; touch(room);
+    send(ws, { t: 'joined', code: room.code, token: room.seats[to].token, you: to });
+    seatList(room).forEach((x) => { if (room.seats[x]) send(room.seats[x].ws, snapshot(room, x)); });
+  }
+
   function onRejoin(ws, msg) {
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
@@ -434,6 +447,7 @@ function createPenteServer(config) {
         case 'lobby': return onLobby(ws, msg);
         case 'lchat': return onLobbyChat(ws, msg);
         case 'move': return onMove(ws, msg);
+        case 'seat': return onSeat(ws, msg);
         case 'resign': return onResign(ws);
         case 'rematch': return onRematch(ws);
         case 'claimWin': return onClaimWin(ws);
