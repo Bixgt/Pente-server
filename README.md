@@ -42,3 +42,6 @@ El servidor puede registrar las partidas entre **dos cuentas** en Supabase, para
 3. Redeploy. Sin estas variables el servidor funciona igual, pero no registra nada.
 
 Reglas: cuentan solo partidas entre dos cuentas distintas con sesión iniciada, con al menos 10 jugadas, máximo 10 por pareja cada 24 horas. Las partidas con invitados no suman.
+
+## Entrar con nombre + contraseña (v33)
+Usa las mismas 3 variables de arriba, más correr `supabase/password.sql`. Endpoint: `POST /login` con `{name, password}` → sesión de Supabase (o 401 con el mismo error para nombre/contraseña malos, 429 si hay demasiados intentos, 503 si falta configurar). Respeta `ALLOWED_ORIGINS`.

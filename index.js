@@ -87,9 +87,56 @@ function createPenteServer(config) {
   });
   const MIN_MOVES = config.minMoves != null ? config.minMoves : 10;   // partidas más cortas no cuentan (evita regalar victorias)
 
+  /* Entrar con nombre + contraseña. El servidor busca el email de esa cuenta (el navegador nunca lo ve), pide la sesión a Supabase
+   * y se la devuelve. Mismo mensaje para "nombre inexistente" y "contraseña mala". Límite de intentos por IP y por nombre. */
+  const tries = new Map();
+  function tooMany(key) {
+    const now = Date.now(); const a = (tries.get(key) || []).filter((t) => now - t < 10 * 60 * 1000);
+    a.push(now); tries.set(key, a); if (tries.size > 5000) tries.clear();
+    return a.length > 10;
+  }
+  const sbFetch = (path, opts) => fetch(sbUrl + path, opts);
+  const doLogin = config.login || (async (name, password) => {
+    if (!sbUrl || !sbAnon || !sbService) return { status: 503, body: { error: 'off' } };
+    const bad = { status: 401, body: { error: 'bad_credentials' } };
+    try {
+      const l = await sbFetch('/rest/v1/rpc/login_lookup', { method: 'POST', headers: { apikey: sbService, Authorization: 'Bearer ' + sbService, 'Content-Type': 'application/json' }, body: JSON.stringify({ p: name }) });
+      if (!l.ok) return { status: 503, body: { error: 'off' } };
+      const id = await l.json(); if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return bad;
+      const u = await sbFetch('/auth/v1/admin/users/' + id, { headers: { apikey: sbService, Authorization: 'Bearer ' + sbService } });
+      const email = u.ok ? (await u.json()).email : ''; if (!email) return bad;
+      const t = await sbFetch('/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: sbAnon, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+      if (t.status === 429) return { status: 429, body: { error: 'rate' } };
+      if (!t.ok) return t.status >= 500 ? { status: 503, body: { error: 'off' } } : bad;
+      const d = await t.json();
+      return { status: 200, body: { access_token: d.access_token, refresh_token: d.refresh_token, expires_in: d.expires_in, expires_at: d.expires_at, user: { id: d.user && d.user.id, email: d.user && d.user.email } } };
+    } catch (e) { return { status: 503, body: { error: 'off' } }; }
+  });
+  function onLoginHttp(req, res, cors) {
+    const reply = (st, o) => { res.writeHead(st, Object.assign({ 'Content-Type': 'application/json' }, cors)); res.end(JSON.stringify(o)); };
+    let buf = '', dead = false;
+    req.on('data', (c) => { buf += c; if (buf.length > 2048 && !dead) { dead = true; reply(413, { error: 'big' }); req.destroy(); } });
+    req.on('end', async () => {
+      if (dead) return;
+      let b; try { b = JSON.parse(buf); } catch (e) { return reply(400, { error: 'bad' }); }
+      const name = String(b && b.name != null ? b.name : '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, 40), pw = b && typeof b.password === 'string' ? b.password : '';
+      if (!name || pw.length < 6 || pw.length > 200) return reply(401, { error: 'bad_credentials' });
+      const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+      if (tooMany('ip:' + ip) | tooMany('n:' + name.toLowerCase())) return reply(429, { error: 'rate' });
+      const r = await doLogin(name, pw); reply(r.status, r.body);
+    });
+  }
+
   const httpServer = http.createServer((req, res) => {
     // /health sirve para "despertar" al servidor cuando el plan gratuito lo durmió, y para monitoreo.
     res.setHeader('Access-Control-Allow-Origin', '*');
+    if (req.url === '/login') {
+      const origin = req.headers.origin, okOrigin = !allowedOrigins.length || !origin || allowedOrigins.includes(origin);
+      const cors = { 'Access-Control-Allow-Origin': allowedOrigins.length && origin ? origin : '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', Vary: 'Origin' };
+      if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+      if (!okOrigin || req.method !== 'POST') { res.writeHead(403, cors); return res.end(); }
+      return onLoginHttp(req, res, cors);
+    }
     if (req.url === '/health' || req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
