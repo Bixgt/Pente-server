@@ -12,6 +12,9 @@
  *  - Victoria: 5 o más en línea (H, V, diagonales) o 5 pares capturados.
  *  - Orden de resolución: se colocan la ficha, se resuelven capturas, se evalúa victoria.
  *  - Empate: tablero lleno sin ganador.
+ *  - Modo 4 jugadores (opts.players = 4): 2 contra 2. Asientos 1,2,3,4 juegan en ese orden; 1 y 3 son el equipo 1, 2 y 4 el equipo 2.
+ *    Las fichas, capturas y victorias son POR EQUIPO (las fichas del equipo nunca se capturan entre sí). `current` sigue siendo el
+ *    equipo (1|2), así todo lo que ya existe para 2 jugadores sigue valiendo; `seatToMove(s)` dice qué asiento (1-4) le toca.
  *  - Regla de torneo (opcional, activada por defecto): la 1ª ficha del J1 va al centro y la
  *    2ª ficha del J1 debe estar a distancia >= 3 del centro (Chebyshev: fuera del cuadrado 5x5).
  */
@@ -41,6 +44,7 @@
     opts = opts || {};
     var size = opts.size || 19;
     return {
+      players: opts.players === 4 ? 4 : 2,
       size: size,
       board: new Array(size * size).fill(EMPTY),
       current: P1,
@@ -66,7 +70,7 @@
 
   function clone(s) {
     return {
-      size: s.size, board: s.board.slice(), current: s.current,
+      players: s.players, size: s.size, board: s.board.slice(), current: s.current,
       captures: { 1: s.captures[1], 2: s.captures[2] },
       moves: s.moves.slice(), lastMove: s.lastMove, status: s.status,
       winner: s.winner, winReasons: s.winReasons.slice(), winLine: s.winLine,
@@ -145,7 +149,7 @@
     n.board[y * n.size + x] = me;
     for (var i = 0; i < captured.length; i++) n.board[captured[i].y * n.size + captured[i].x] = EMPTY;
     n.captures[me] += captured.length / 2;
-    n.moves.push({ x: x, y: y, player: me, captured: captured });
+    n.moves.push({ x: x, y: y, player: me, seat: seatToMove(s), captured: captured });
     n.lastMove = { x: x, y: y, player: me };
 
     var reasons = [], line = null, winner = 0;
@@ -172,6 +176,18 @@
       n.current = opponent(me);
     }
     return { ok: true, state: n, captured: captured, won: n.status === 'won', draw: n.status === 'draw' };
+  }
+
+  /** Asiento (1..players) al que le toca jugar. En 2 jugadores coincide con el equipo. */
+  function seatToMove(s) { return (s.moves.length % (s.players || 2)) + 1; }
+  /** Equipo (1|2) de un asiento: 1 y 3 -> equipo 1; 2 y 4 -> equipo 2. */
+  function teamOfSeat(seat) { return seat % 2 === 1 ? P1 : P2; }
+  /** Asientos de un equipo (en 2 jugadores, el propio asiento). */
+  function seatsOfTeam(s, team) { return (s.players || 2) === 4 ? (team === P1 ? [1, 3] : [2, 4]) : [team]; }
+  /** Como playMove pero identificando al jugador por ASIENTO (1..players): valida que le toque a ese asiento y no solo a su equipo. */
+  function playMoveSeat(s, x, y, seat) {
+    if (s.status === 'playing' && seat !== seatToMove(s)) return { ok: false, error: ERR.NOT_YOUR_TURN };
+    return playMove(s, x, y, teamOfSeat(seat));
   }
 
   function isBoardFull(s) { for (var i = 0; i < s.board.length; i++) if (s.board[i] === EMPTY) return false; return true; }
@@ -201,7 +217,8 @@
 
   return {
     EMPTY: EMPTY, P1: P1, P2: P2, ERR: ERR,
-    createGame: createGame, validateMove: validateMove, playMove: playMove,
+    createGame: createGame, validateMove: validateMove, playMove: playMove, playMoveSeat: playMoveSeat,
+    seatToMove: seatToMove, teamOfSeat: teamOfSeat, seatsOfTeam: seatsOfTeam,
     findCaptures: findCaptures, findLine: findLine, legalMoves: legalMoves,
     opponent: opponent, get: get, inBounds: inBounds, center: center,
     winsNeededForBestOf: winsNeededForBestOf,

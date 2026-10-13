@@ -4,12 +4,12 @@
  * El servidor es el ÁRBITRO: guarda la partida y valida cada jugada con el mismo núcleo de reglas
  * (pente-core.js, copia de src/core/pente.js) que usa el cliente. El cliente nunca decide nada.
  *
- * Alcance de esta versión: salas por código/enlace, 2 jugadores, reconexión, abandono, reclamar victoria
+ * Alcance de esta versión: salas por código/enlace, 2 jugadores (o 4: 2 contra 2, opts.players = 4), reconexión, abandono, reclamar victoria
  * si el rival se desconecta, revancha. Las salas viven en memoria (se pierden si el servidor se reinicia).
  * Si se configuran SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY, las partidas entre dos cuentas verificadas se registran en Supabase.
  *
  * Protocolo (JSON). Cliente -> servidor:
- *   {t:'create', name, jwt?, opts:{tournamentRule, exactFive, size: 13|19, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
+ *   {t:'create', name, jwt?, opts:{tournamentRule, exactFive, size: 13|19, players: 2|4, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
  *   {t:'lobby', on, name}  (entrar/salir del chat del lobby)   {t:'lchat', text, name}  (máx. 160 caracteres, 1 cada 1,2 s, sin links)
  *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
@@ -18,6 +18,8 @@
  *   {t:'joined', code, token, you}   (espectador: {t:'joined', code, you:0, spectator:true}, sin token)
  *   {t:'sync', ...estado completo...}   {t:'move', x, y, n}   {t:'rooms', rooms:[...]}   {t:'spectators', n}
  *   {t:'presence', connected}  {t:'over', winner, reason}  {t:'rematch', votes}  {t:'error', code, detail?}  {t:'pong'}
+ * Modo 4 jugadores: asientos 1-4 (turno en ese orden; 1 y 3 son el equipo 1, 2 y 4 el equipo 2). `you` es el asiento; `winner` en
+ * `over` es el EQUIPO (1|2) que ganó (en 2 jugadores equipo = asiento). Las salas de 4 no registran estadísticas todavía.
  * Los espectadores reciben lo mismo que los jugadores (sync, move, over, presence) pero no pueden jugar.
  */
 'use strict';
@@ -157,10 +159,15 @@ function createPenteServer(config) {
 
   /* ---------- Helpers de sala ---------- */
   function send(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
-  function seatOf(room, token) { return [1, 2].find((s) => room.seats[s] && room.seats[s].token === token) || 0; }
-  function connectedMap(room) { return { 1: !!(room.seats[1] && room.seats[1].ws), 2: !!(room.seats[2] && room.seats[2].ws) }; }
+  const seatList = (room) => (room.opts.players === 4 ? [1, 2, 3, 4] : [1, 2]);
+  const isFull = (room) => seatList(room).every((s) => !!room.seats[s]);
+  const teamOf = (seat) => (seat % 2 === 1 ? 1 : 2);
+  const otherTeam = (team) => (team === 1 ? 2 : 1);
+  function seatOf(room, token) { return seatList(room).find((s) => room.seats[s] && room.seats[s].token === token) || 0; }
+  function connectedMap(room) { const o = {}; seatList(room).forEach((s) => { o[s] = !!(room.seats[s] && room.seats[s].ws); }); return o; }
   function toSpectators(room, obj) { room.spectators.forEach((w) => send(w, obj)); }
-  function broadcast(room, obj) { [1, 2].forEach((s) => room.seats[s] && send(room.seats[s].ws, obj)); toSpectators(room, obj); }
+  function broadcast(room, obj) { seatList(room).forEach((s) => room.seats[s] && send(room.seats[s].ws, obj)); toSpectators(room, obj); }
+  function announcePresence(room) { broadcast(room, { t: 'presence', connected: connectedMap(room) }); }
   function announceSpectators(room) { broadcast(room, { t: 'spectators', n: room.spectators.size }); }
   function touch(room) { room.lastActivity = Date.now(); }
 
@@ -184,7 +191,7 @@ function createPenteServer(config) {
     room.clockTimer = null; const c = room.clock; if (!c || gameOverNow(room)) return;
     if (Date.now() - c.since < clockLimit(room)) return clockArm(room);
     c.rem[c.current] = Math.max(0, c.rem[c.current] - (Date.now() - c.since));
-    finish(room, c.current === 1 ? 2 : 1, 'timeout');
+    finish(room, otherTeam(c.current), 'timeout');
   }
   function clockInfo(room) {            // valores "en vivo" al momento de enviar (los clientes cuentan desde ahí, sin depender de relojes ajenos)
     const c = room.clock; if (!c) return { on: false };
@@ -193,20 +200,22 @@ function createPenteServer(config) {
     return { on: true, total: totalMs, turnMs, rem, current: over ? 0 : c.current, turnLeft: over ? turnMs : Math.max(0, turnMs - used) };
   }
 
-  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.recorded = false; room.over = null; room.rematch = { 1: false, 2: false }; clockStop(room); room.clock = null; }
+  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
+  function noVotes(room) { const o = {}; seatList(room).forEach((s) => { o[s] = false; }); return o; }
 
   function snapshot(room, seat) {
     return {
       t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, spectators: room.spectators.size,
-      names: { 1: room.seats[1] ? room.seats[1].name : '', 2: room.seats[2] ? room.seats[2].name : '' },
+      names: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].name : ''; }); return o; })(),
       connected: connectedMap(room), moves: room.moves,
       over: room.over, rematch: room.rematch, clock: clockInfo(room),
       disconnectedFor: disconnectedFor(room)
     };
   }
   function disconnectedFor(room) {
-    const out = { 1: 0, 2: 0 };
-    [1, 2].forEach((s) => { const p = room.seats[s]; if (p && !p.ws && p.leftAt) out[s] = Date.now() - p.leftAt; });
+    const out = {};
+    seatList(room).forEach((s) => { out[s] = 0; });
+    seatList(room).forEach((s) => { const p = room.seats[s]; if (p && !p.ws && p.leftAt) out[s] = Date.now() - p.leftAt; });
     return out;
   }
   function gameOverNow(room) { return !!room.over || room.game.status !== 'playing'; }
@@ -219,7 +228,7 @@ function createPenteServer(config) {
   // Solo cuenta si juegan dos cuentas distintas y verificadas, y la partida tuvo un mínimo de jugadas. Una vez por partida.
   function record(room, winner, reason) {
     const s1 = room.seats[1], s2 = room.seats[2];
-    if (room.recorded || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
+    if (room.recorded || room.opts.players === 4 || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
     room.recorded = true;
     Promise.resolve(recordResult({ a: s1.uid, b: s2.uid, winner: winner === 1 || winner === 2 ? winner : 0, moves: room.moves.length, reason })).catch(() => {});
   }
@@ -234,8 +243,8 @@ function createPenteServer(config) {
     if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
-    const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.timer !== false };   // solo 13 o 19: nada más pasa
-    const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null }, game: null, moves: [], over: null, rematch: { 1: false, 2: false }, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
+    const opts = { tournamentRule: o.tournamentRule !== false, exactFive: !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.timer !== false, players: o.players === 4 ? 4 : 2 };   // solo 13 o 19: nada más pasa
+    const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
     room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[1], msg.jwt);
@@ -249,15 +258,16 @@ function createPenteServer(config) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
-    if (room.seats[2]) return send(ws, { t: 'error', code: 'ROOM_FULL' });
+    const seat = seatList(room).find((s) => !room.seats[s]);
+    if (!seat) return send(ws, { t: 'error', code: 'ROOM_FULL' });
     const token = newToken();
-    room.seats[2] = { name: cleanName(msg.name, 'Jugador 2'), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[2], msg.jwt);
-    attach(ws, room, 2); touch(room);
-    clockStart(room);                                  // ya hay dos jugadores: corre el reloj del primero
-    send(ws, { t: 'joined', code: room.code, token, you: 2 });
-    // el creador recibe la foto completa (ahora hay rival); el que entra también
-    send(ws, snapshot(room, 2)); sendChatLog(ws, room);
-    send(room.seats[1].ws, snapshot(room, 1));
+    room.seats[seat] = { name: cleanName(msg.name, 'Jugador ' + seat), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[seat], msg.jwt);
+    attach(ws, room, seat); touch(room);
+    if (isFull(room)) clockStart(room);                // ya están todos: corre el reloj del primero
+    send(ws, { t: 'joined', code: room.code, token, you: seat });
+    // el que entra recibe la foto completa; los que ya estaban también (hay un asiento más ocupado, o ya empezó)
+    send(ws, snapshot(room, seat)); sendChatLog(ws, room);
+    seatList(room).forEach((s) => { if (s !== seat && room.seats[s]) send(room.seats[s].ws, snapshot(room, s)); });
   }
 
   function onRejoin(ws, msg) {
@@ -270,9 +280,7 @@ function createPenteServer(config) {
     attach(ws, room, seat); touch(room);
     send(ws, { t: 'joined', code: room.code, token: p.token, you: seat });
     send(ws, snapshot(room, seat)); sendChatLog(ws, room);
-    const other = room.seats[seat === 1 ? 2 : 1];
-    if (other) send(other.ws, { t: 'presence', connected: connectedMap(room) });
-    toSpectators(room, { t: 'presence', connected: connectedMap(room) });
+    announcePresence(room);
   }
 
   function attach(ws, room, seat) { ws.room = room; ws.seat = seat; room.seats[seat].ws = ws; room.seats[seat].leftAt = 0; }
@@ -285,14 +293,14 @@ function createPenteServer(config) {
 
   function onMove(ws, msg) {
     const room = inRoom(ws); if (!room) return;
-    if (!room.seats[2]) return send(ws, { t: 'error', code: 'WAITING_FOR_RIVAL' });
+    if (!isFull(room)) return send(ws, { t: 'error', code: 'WAITING_FOR_RIVAL' });
     if (gameOverNow(room)) return send(ws, { t: 'error', code: P.ERR.GAME_OVER });
-    const r = P.playMove(room.game, msg.x, msg.y, ws.seat);   // el núcleo valida turno, límites, ocupación y reglas
+    const r = P.playMoveSeat(room.game, msg.x, msg.y, ws.seat);   // el núcleo valida turno (por asiento), límites, ocupación y reglas
     if (!r.ok) return send(ws, { t: 'error', code: 'ILLEGAL', detail: r.error });
     const c = room.clock;
-    if (c && ws.seat === c.current) {                          // ¿llegó a tiempo? (si el temporizador todavía no saltó, se decide acá)
+    if (c && teamOf(ws.seat) === c.current) {                          // ¿llegó a tiempo? (si el temporizador todavía no saltó, se decide acá)
       const used = Date.now() - c.since;
-      if (used > clockLimit(room) + 150) { c.rem[c.current] = Math.max(0, c.rem[c.current] - used); return finish(room, ws.seat === 1 ? 2 : 1, 'timeout'); }
+      if (used > clockLimit(room) + 150) { c.rem[c.current] = Math.max(0, c.rem[c.current] - used); return finish(room, otherTeam(c.current), 'timeout'); }
       c.rem[c.current] = Math.max(0, c.rem[c.current] - used);
     }
     room.game = r.state; room.moves.push([msg.x, msg.y]); touch(room);
@@ -303,28 +311,29 @@ function createPenteServer(config) {
   }
 
   function onResign(ws) {
-    const room = inRoom(ws); if (!room || gameOverNow(room) || !room.seats[2]) return;
-    finish(room, ws.seat === 1 ? 2 : 1, 'resign'); touch(room);
+    const room = inRoom(ws); if (!room || gameOverNow(room) || !isFull(room)) return;
+    finish(room, otherTeam(teamOf(ws.seat)), 'resign'); touch(room);
   }
 
   function onClaimWin(ws) {
     const room = inRoom(ws); if (!room || gameOverNow(room)) return;
-    const rival = ws.seat === 1 ? 2 : 1, p = room.seats[rival];
-    if (!p || p.ws || !p.leftAt || Date.now() - p.leftAt < forfeitAfterMs) return send(ws, { t: 'error', code: 'CANNOT_CLAIM' });
-    finish(room, ws.seat, 'forfeit'); touch(room);
+    const myTeam = teamOf(ws.seat);
+    const gone = seatList(room).some((s) => { const p = room.seats[s]; return teamOf(s) !== myTeam && p && !p.ws && p.leftAt && Date.now() - p.leftAt >= forfeitAfterMs; });
+    if (!gone) return send(ws, { t: 'error', code: 'CANNOT_CLAIM' });
+    finish(room, myTeam, 'forfeit'); touch(room);
   }
 
   function onRematch(ws) {
     const room = inRoom(ws); if (!room) return;
     if (!gameOverNow(room)) return send(ws, { t: 'error', code: 'GAME_NOT_OVER' });
     room.rematch[ws.seat] = true; touch(room);
-    if (room.rematch[1] && room.rematch[2]) {
-      // se intercambian los lados: quien jugó de J1 pasa a J2
-      const a = room.seats[1], b = room.seats[2];
-      room.seats[1] = b; room.seats[2] = a;
-      if (a.ws) a.ws.seat = 2; if (b.ws) b.ws.seat = 1;
+    if (seatList(room).every((s) => room.rematch[s])) {
+      // se rotan los asientos (en 2 jugadores se intercambian los lados; en 4 cada uno pasa al asiento siguiente: el equipo que movía primero pasa a mover segundo)
+      const old = {}, n = seatList(room).length;
+      seatList(room).forEach((s) => { old[s] = room.seats[s]; });
+      seatList(room).forEach((s) => { const to = (s % n) + 1; room.seats[to] = old[s]; if (old[s].ws) old[s].ws.seat = to; });
       freshGame(room); clockStart(room);
-      [1, 2].forEach((s) => send(room.seats[s].ws, snapshot(room, s)));
+      seatList(room).forEach((s) => send(room.seats[s].ws, snapshot(room, s)));
       toSpectators(room, snapshot(room, 0));
     } else broadcast(room, { t: 'rematch', votes: room.rematch });
   }
@@ -335,11 +344,12 @@ function createPenteServer(config) {
     rooms.forEach((room) => {
       if (!room.public) return;
       const c = connectedMap(room);
-      if (!c[1] && !c[2]) return;                                   // sala fantasma: nadie conectado
+      if (!Object.keys(c).some((k) => c[k])) return;                // sala fantasma: nadie conectado
       out.push({
         code: room.code, size: room.opts.size, tournamentRule: room.opts.tournamentRule, exactFive: room.opts.exactFive,
-        names: [room.seats[1] ? room.seats[1].name : '', room.seats[2] ? room.seats[2].name : ''],
-        status: !room.seats[2] ? 'waiting' : gameOverNow(room) ? 'over' : 'playing',
+        players: room.opts.players,
+        names: seatList(room).map((s) => (room.seats[s] ? room.seats[s].name : '')),
+        status: !isFull(room) ? 'waiting' : gameOverNow(room) ? 'over' : 'playing',
         moves: room.moves.length, spectators: room.spectators.size, at: room.lastActivity
       });
     });
@@ -352,7 +362,7 @@ function createPenteServer(config) {
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
     if (!room.public) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores
-    if (!room.seats[2]) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
+    if (!isFull(room)) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
     if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
     ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);
     ws.cid = 's' + (++room.specSeq); ws.name = cleanName(msg.name, 'Espectador');
@@ -439,9 +449,7 @@ function createPenteServer(config) {
       const p = room.seats[ws.seat];
       if (p && p.ws === ws) {                         // si ya lo reemplazó otra conexión, no se marca como ido
         p.ws = null; p.leftAt = Date.now();
-        const other = room.seats[ws.seat === 1 ? 2 : 1];
-        if (other) send(other.ws, { t: 'presence', connected: connectedMap(room) });
-        toSpectators(room, { t: 'presence', connected: connectedMap(room) });
+        announcePresence(room);
       }
     });
     ws.on('error', () => {});
