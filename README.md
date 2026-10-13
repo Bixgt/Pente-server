@@ -13,7 +13,7 @@
 - `GET /health` responde `{"ok":true}`: sirve para despertar al servidor cuando el plan gratuito lo durmió.
 
 ## Qué NO hace (todavía)
-Cuentas, ranking, historial, torneos, reloj de partida. Todo vive **en memoria**: si el servidor se reinicia o se duerme mucho tiempo, las salas se pierden. Para guardar datos hace falta una base de datos (otra decisión).
+Ranking, torneos compartidos. Las salas viven **en memoria**: si el servidor se reinicia o se duerme mucho tiempo, las salas se pierden. Para guardar datos hace falta una base de datos (otra decisión).
 
 ## Probarlo en tu compu
 ```
@@ -31,3 +31,14 @@ Los menús de Render pueden cambiar: verificá cada paso en su pantalla.
 5. Cuando termine, Render muestra la dirección `https://algo.onrender.com`. En el juego, editar `config.js` y poner `window.PENTE_SERVER = 'wss://algo.onrender.com';` (con **wss**, no https).
 
 Plan gratuito: se duerme tras 15 minutos sin uso y tarda cerca de un minuto en despertar. El juego manda un aviso a `/health` apenas se abre para adelantar ese despertar.
+
+## Estadísticas verificadas (v32, opcional pero recomendado)
+El servidor puede registrar las partidas entre **dos cuentas** en Supabase, para que las estadísticas online no se puedan falsear desde el navegador.
+1. Correr `supabase/online.sql` en Supabase (SQL Editor).
+2. En Render → tu servicio → *Environment*, agregar:
+   - `SUPABASE_URL` = `https://ymcauwmqmzsamvzwecwn.supabase.co`
+   - `SUPABASE_ANON_KEY` = la clave **publishable** (la misma que usa el juego)
+   - `SUPABASE_SERVICE_KEY` = la clave **secret** (Supabase → Project Settings → API Keys). **Es secreta: solo en Render, nunca en GitHub ni en el juego.**
+3. Redeploy. Sin estas variables el servidor funciona igual, pero no registra nada.
+
+Reglas: cuentan solo partidas entre dos cuentas distintas con sesión iniciada, con al menos 10 jugadas, máximo 10 por pareja cada 24 horas. Las partidas con invitados no suman.
