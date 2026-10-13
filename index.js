@@ -82,7 +82,7 @@ function createPenteServer(config) {
   });
   const recordResult = config.recordResult || ((rec) => {
     if (!sbUrl || !sbService) return Promise.resolve('off');
-    return fetch(sbUrl + '/rest/v1/rpc/record_online', { method: 'POST', headers: { apikey: sbService, Authorization: 'Bearer ' + sbService, 'Content-Type': 'application/json' }, body: JSON.stringify({ a: rec.a, b: rec.b, winner: rec.winner, moves: rec.moves, reason: rec.reason }) })
+    return fetch(sbUrl + '/rest/v1/rpc/record_online', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, svcHeaders()), body: JSON.stringify({ a: rec.a, b: rec.b, winner: rec.winner, moves: rec.moves, reason: rec.reason }) })
       .then((r) => (r.ok ? r.json() : 'error')).catch(() => 'error');
   });
   const MIN_MOVES = config.minMoves != null ? config.minMoves : 10;   // partidas más cortas no cuentan (evita regalar victorias)
@@ -96,21 +96,28 @@ function createPenteServer(config) {
     return a.length > 10;
   }
   const sbFetch = (path, opts) => fetch(sbUrl + path, opts);
+  // Las claves nuevas (sb_secret_...) NO son JWT: van solo en "apikey". Las viejas (service_role, empiezan con eyJ) van en los dos.
+  const svcHeaders = (extra) => Object.assign({ apikey: sbService }, /^sb_/.test(sbService) ? {} : { Authorization: 'Bearer ' + sbService }, extra);
+  const configured = () => !!(sbUrl && sbAnon && sbService);
+  const fail = (status, why) => { console.log('[login] ' + why); return { status, body: { error: 'server_error', why } }; };
   const doLogin = config.login || (async (name, password) => {
-    if (!sbUrl || !sbAnon || !sbService) return { status: 503, body: { error: 'off' } };
-    const bad = { status: 401, body: { error: 'bad_credentials' } };
+    if (!configured()) return fail(503, 'not_configured');
     try {
-      const l = await sbFetch('/rest/v1/rpc/login_lookup', { method: 'POST', headers: { apikey: sbService, Authorization: 'Bearer ' + sbService, 'Content-Type': 'application/json' }, body: JSON.stringify({ p: name }) });
-      if (!l.ok) return { status: 503, body: { error: 'off' } };
-      const id = await l.json(); if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return bad;
-      const u = await sbFetch('/auth/v1/admin/users/' + id, { headers: { apikey: sbService, Authorization: 'Bearer ' + sbService } });
-      const email = u.ok ? (await u.json()).email : ''; if (!email) return bad;
+      // login_lookup (password.sql) devuelve el email de esa cuenta SOLO a la clave secret; el navegador nunca lo ve
+      const l = await sbFetch('/rest/v1/rpc/login_lookup', { method: 'POST', headers: svcHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ p: name }) });
+      if (!l.ok) return fail(503, 'lookup_' + l.status + (l.status === 404 ? '_falta_password.sql' : l.status === 401 || l.status === 403 ? '_clave_secret' : ''));
+      const email = await l.json(); if (typeof email !== 'string' || email.indexOf('@') < 1) return { status: 401, body: { error: 'bad_credentials' } };
       const t = await sbFetch('/auth/v1/token?grant_type=password', { method: 'POST', headers: { apikey: sbAnon, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
       if (t.status === 429) return { status: 429, body: { error: 'rate' } };
-      if (!t.ok) return t.status >= 500 ? { status: 503, body: { error: 'off' } } : bad;
+      if (!t.ok) {
+        let j = null; try { j = await t.json(); } catch (e) {}
+        const code = String((j && (j.error_code || j.code)) || '');
+        if (t.status === 400 && (!code || code === 'invalid_credentials')) return { status: 401, body: { error: 'bad_credentials' } };
+        return fail(502, 'token_' + t.status + (code ? '_' + code : ''));          // p. ej. proveedor de email con contraseña desactivado
+      }
       const d = await t.json();
       return { status: 200, body: { access_token: d.access_token, refresh_token: d.refresh_token, expires_in: d.expires_in, expires_at: d.expires_at, user: { id: d.user && d.user.id, email: d.user && d.user.email } } };
-    } catch (e) { return { status: 503, body: { error: 'off' } }; }
+    } catch (e) { return fail(503, 'unreachable'); }
   });
   function onLoginHttp(req, res, cors) {
     const reply = (st, o) => { res.writeHead(st, Object.assign({ 'Content-Type': 'application/json' }, cors)); res.end(JSON.stringify(o)); };
@@ -139,7 +146,7 @@ function createPenteServer(config) {
     }
     if (req.url === '/health' || req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, rooms: rooms.size }));
+      res.end(JSON.stringify({ ok: true, rooms: rooms.size, accounts: !!(sbUrl && sbAnon && sbService) }));   // accounts: ¿están cargadas las 3 variables de Supabase?
     } else { res.writeHead(404); res.end(); }
   });
 
