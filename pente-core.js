@@ -18,6 +18,9 @@
  *  - Variantes (opts.variant): 'classic' (por defecto; solo pares), 'pairs3' (se capturan pares Y tríos; par = 1 punto, trío = 2; gana con 5 puntos),
  *    'triples' (solo tríos: P O O O P; cada trío = 1 punto; gana con 3), 'gomoku' (sin capturas, sin regla de torneo; gana con 5 o más en línea).
  *    `captures[p]` cuenta PUNTOS de captura; `options.capturesToWin` es el objetivo. Blitz no es una regla del tablero: es solo cómo corre el reloj (lo maneja quien juega).
+ *  - Todos contra todos (opts.players = 4 y opts.ffa = true): 4 colores (1..4), cada asiento es su propio "equipo": `current` es el asiento al que le toca (1,2,3,4 y vuelta),
+ *    las capturas se llevan por asiento, un par/trío se captura si son del MISMO color rival y sus dos extremos son tuyos. Sin regla de torneo. Quien abandona o se queda sin tiempo
+ *    queda ELIMINADO (`eliminate`): sus fichas quedan en el tablero y se saltea su turno; si queda uno solo, gana (winReasons ['last']).
  *  - Regla de torneo (opcional, activada por defecto): la 1ª ficha del J1 va al centro y la
  *    2ª ficha del J1 debe estar a distancia >= 3 del centro (Chebyshev: fuera del cuadrado 5x5).
  */
@@ -56,13 +59,16 @@
   function createGame(opts) {
     opts = opts || {};
     var size = opts.size || 19;
+    var ffa = opts.players === 4 && opts.ffa === true;
     var variant = VARIANTS.indexOf(opts.variant) >= 0 ? opts.variant : 'classic', vr = VARIANT_RULES[variant];
     return {
       players: opts.players === 4 ? 4 : 2,
+      ffa: ffa,                           // todos contra todos (4 colores)
+      out: {},                            // asientos eliminados (solo ffa)
       size: size,
       board: new Array(size * size).fill(EMPTY),
       current: P1,
-      captures: { 1: 0, 2: 0 },          // pares capturados por cada jugador
+      captures: ffa ? { 1: 0, 2: 0, 3: 0, 4: 0 } : { 1: 0, 2: 0 },          // puntos de captura de cada jugador
       moves: [],                          // {x,y,player,captured:[{x,y}]}
       lastMove: null,
       status: 'playing',                  // 'playing' | 'won' | 'draw'
@@ -71,7 +77,7 @@
       winLine: null,                      // [{x,y}...] si ganó por línea
       options: {
         variant: variant,
-        tournamentRule: variant === 'gomoku' ? false : opts.tournamentRule !== false,
+        tournamentRule: (variant === 'gomoku' || ffa) ? false : opts.tournamentRule !== false,
         capturesToWin: opts.capturesToWin || vr.toWin,
         lineToWin: opts.lineToWin || 5,
         exactFive: variant === 'gomoku' ? false : !!opts.exactFive            // true: solo cuenta una línea de EXACTAMENTE lineToWin
@@ -85,8 +91,8 @@
 
   function clone(s) {
     return {
-      players: s.players, size: s.size, board: s.board.slice(), current: s.current,
-      captures: { 1: s.captures[1], 2: s.captures[2] },
+      players: s.players, ffa: !!s.ffa, out: Object.assign({}, s.out), size: s.size, board: s.board.slice(), current: s.current,
+      captures: Object.assign({}, s.captures),
       moves: s.moves.slice(), lastMove: s.lastMove, status: s.status,
       winner: s.winner, winReasons: s.winReasons.slice(), winLine: s.winLine,
       options: { variant: s.options.variant, tournamentRule: s.options.tournamentRule, capturesToWin: s.options.capturesToWin, lineToWin: s.options.lineToWin, exactFive: s.options.exactFive }
@@ -111,16 +117,18 @@
   /** Grupos que captura "player" al colocar en (x,y). Se evalúa ANTES de poner la ficha en el tablero lógico
    *  (la ficha nueva es la P de un extremo). Devuelve {cells:[{x,y}...], points} según la variante. */
   function captureInfo(s, x, y, player) {
-    var vr = rulesOf(s), opp = opponent(player), cells = [], points = 0;
+    var vr = rulesOf(s), cells = [], points = 0;
     for (var i = 0; i < DIRS8.length; i++) {
-      var dx = DIRS8[i][0], dy = DIRS8[i][1];
+      var dx = DIRS8[i][0], dy = DIRS8[i][1], o = null;
       for (var k = 0; k < vr.sizes.length; k++) {
         var n = vr.sizes[k], ex = x + (n + 1) * dx, ey = y + (n + 1) * dy;
         if (!inBounds(s, ex, ey) || get(s, ex, ey) !== player) continue;
+        o = get(s, x + dx, y + dy);
+        if (!o || o === player) continue;                           // el grupo es de UN solo color rival (en ffa hay tres posibles)
         var ok = true;
-        for (var j = 1; j <= n; j++) if (get(s, x + j * dx, y + j * dy) !== opp) { ok = false; break; }
+        for (var j = 2; j <= n; j++) if (get(s, x + j * dx, y + j * dy) !== o) { ok = false; break; }
         if (!ok) continue;
-        for (j = 1; j <= n; j++) cells.push({ x: x + j * dx, y: y + j * dy });
+        for (j = 1; j <= n; j++) cells.push({ x: x + j * dx, y: y + j * dy, p: o });
         points += vr.pts[n];
       }
     }
@@ -180,8 +188,11 @@
       line = findExactLine(n, me);
       if (line) reasons.push('line');
       if (!reasons.length) {
-        var oppLine = findExactLine(n, opponent(me));
-        if (oppLine) { winner = opponent(me); reasons.push('line'); line = oppLine; }
+        for (var q = 1; q <= (n.ffa ? 4 : 2) && !winner; q++) {
+          if (q === me || (n.ffa && n.out[q])) continue;
+          var oppLine = findExactLine(n, q);
+          if (oppLine) { winner = q; reasons.push('line'); line = oppLine; }
+        }
       }
     } else {
       line = findLine(n, x, y, me);
@@ -193,21 +204,31 @@
     } else if (isBoardFull(n)) {
       n.status = 'draw';   // tablero lleno sin ganador
     } else {
-      n.current = opponent(me);
+      n.current = n.ffa ? nextActive(n, me) : opponent(me);
     }
     return { ok: true, state: n, captured: captured, won: n.status === 'won', draw: n.status === 'draw' };
   }
 
-  /** Asiento (1..players) al que le toca jugar. En 2 jugadores coincide con el equipo. */
-  function seatToMove(s) { return (s.moves.length % (s.players || 2)) + 1; }
+  function nextActive(s, from) { for (var i = 1; i <= 4; i++) { var q = ((from - 1 + i) % 4) + 1; if (!s.out[q]) return q; } return from; }
+  /** Asiento (1..players) al que le toca jugar. En 2 jugadores coincide con el equipo; en todos contra todos es `current`. */
+  function seatToMove(s) { return s.ffa ? s.current : (s.moves.length % (s.players || 2)) + 1; }
+  /** Todos contra todos: saca a un asiento (abandono / tiempo). Si queda uno solo, gana. */
+  function eliminate(s, seat) {
+    if (!s.ffa || s.status !== 'playing' || seat < 1 || seat > 4 || s.out[seat]) return { ok: false, error: ERR.GAME_OVER };
+    var n = clone(s); n.out[seat] = true;
+    var left = [1, 2, 3, 4].filter(function (q) { return !n.out[q]; });
+    if (left.length === 1) { n.status = 'won'; n.winner = left[0]; n.winReasons = ['last']; n.winLine = null; }
+    else if (n.current === seat) n.current = nextActive(n, seat);
+    return { ok: true, state: n };
+  }
   /** Equipo (1|2) de un asiento: 1 y 3 -> equipo 1; 2 y 4 -> equipo 2. */
-  function teamOfSeat(seat) { return seat % 2 === 1 ? P1 : P2; }
+  function teamOfSeat(seat, s) { return s && s.ffa ? seat : seat % 2 === 1 ? P1 : P2; }
   /** Asientos de un equipo (en 2 jugadores, el propio asiento). */
-  function seatsOfTeam(s, team) { return (s.players || 2) === 4 ? (team === P1 ? [1, 3] : [2, 4]) : [team]; }
+  function seatsOfTeam(s, team) { return s.ffa ? [team] : (s.players || 2) === 4 ? (team === P1 ? [1, 3] : [2, 4]) : [team]; }
   /** Como playMove pero identificando al jugador por ASIENTO (1..players): valida que le toque a ese asiento y no solo a su equipo. */
   function playMoveSeat(s, x, y, seat) {
     if (s.status === 'playing' && seat !== seatToMove(s)) return { ok: false, error: ERR.NOT_YOUR_TURN };
-    return playMove(s, x, y, teamOfSeat(seat));
+    return playMove(s, x, y, teamOfSeat(seat, s));
   }
 
   function isBoardFull(s) { for (var i = 0; i < s.board.length; i++) if (s.board[i] === EMPTY) return false; return true; }
@@ -238,7 +259,7 @@
   return {
     EMPTY: EMPTY, P1: P1, P2: P2, ERR: ERR,
     createGame: createGame, validateMove: validateMove, playMove: playMove, playMoveSeat: playMoveSeat,
-    seatToMove: seatToMove, teamOfSeat: teamOfSeat, seatsOfTeam: seatsOfTeam,
+    seatToMove: seatToMove, eliminate: eliminate, nextActive: nextActive, teamOfSeat: teamOfSeat, seatsOfTeam: seatsOfTeam,
     findCaptures: findCaptures, captureInfo: captureInfo, VARIANTS: VARIANTS, VARIANT_RULES: VARIANT_RULES, findLine: findLine, legalMoves: legalMoves,
     opponent: opponent, get: get, inBounds: inBounds, center: center,
     winsNeededForBestOf: winsNeededForBestOf,

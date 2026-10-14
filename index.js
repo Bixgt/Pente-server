@@ -9,7 +9,7 @@
  * Si se configuran SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY, las partidas entre dos cuentas verificadas se registran en Supabase.
  *
  * Protocolo (JSON). Cliente -> servidor:
- *   {t:'create', name, jwt?, opts:{variant: 'classic'|'pairs3'|'triples'|'gomoku', blitz: bool, tournamentRule, exactFive, size: 13|19, players: 2|4, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
+ *   {t:'create', name, jwt?, opts:{ffa: bool (4 jugadores, todos contra todos), variant: 'classic'|'pairs3'|'triples'|'gomoku', blitz: bool, tournamentRule, exactFive, size: 13|19, players: 2|4, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
  *   {t:'lobby', on, name}  (entrar/salir del chat del lobby)   {t:'lchat', text, name}  (máx. 160 caracteres, 1 cada 1,2 s, sin links)
  *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
@@ -168,7 +168,8 @@ function createPenteServer(config) {
   function send(ws, obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
   const seatList = (room) => (room.opts.players === 4 ? [1, 2, 3, 4] : [1, 2]);
   const isFull = (room) => seatList(room).every((s) => !!room.seats[s]);
-  const teamOf = (seat) => (seat % 2 === 1 ? 1 : 2);
+  const teamOf = (room, seat) => (room.opts.ffa ? seat : seat % 2 === 1 ? 1 : 2);   // en todos contra todos cada asiento es su propio equipo
+  const clockKeys = (room) => (room.opts.ffa ? [1, 2, 3, 4] : [1, 2]);
   const otherTeam = (team) => (team === 1 ? 2 : 1);
   function seatOf(room, token) { return seatList(room).find((s) => room.seats[s] && room.seats[s].token === token) || 0; }
   function connectedMap(room) { const o = {}; seatList(room).forEach((s) => { o[s] = !!(room.seats[s] && (room.seats[s].ws || room.seats[s].bot)); }); return o; }
@@ -188,7 +189,7 @@ function createPenteServer(config) {
   function clockStart(room) {
     clockStop(room); room.clock = null;
     if (!room.opts.timer) return;
-    room.clock = { rem: { 1: roomTotal(room), 2: roomTotal(room) }, current: 1, since: Date.now() };
+    room.clock = { rem: {}, current: 1, since: Date.now() }; clockKeys(room).forEach((k) => { room.clock.rem[k] = roomTotal(room); });
     clockArm(room);
   }
   function clockArm(room) {
@@ -200,24 +201,25 @@ function createPenteServer(config) {
     room.clockTimer = null; const c = room.clock; if (!c || gameOverNow(room)) return;
     if (Date.now() - c.since < clockLimit(room)) return clockArm(room);
     c.rem[c.current] = Math.max(0, c.rem[c.current] - (Date.now() - c.since));
+    if (room.opts.ffa) return eliminateSeat(room, c.current, 'timeout');
     finish(room, otherTeam(c.current), 'timeout');
   }
   function clockInfo(room) {            // valores "en vivo" al momento de enviar (los clientes cuentan desde ahí, sin depender de relojes ajenos)
     const c = room.clock; if (!c) return { on: false };
     const over = gameOverNow(room), used = over ? 0 : Date.now() - c.since;
-    const rem = { 1: c.rem[1], 2: c.rem[2] }; if (!over) rem[c.current] = Math.max(0, rem[c.current] - used);
+    const rem = Object.assign({}, c.rem); if (!over) rem[c.current] = Math.max(0, rem[c.current] - used);
     const tm = roomTurn(room);
     return { on: true, total: roomTotal(room), turnMs: tm, blitz: !!room.opts.blitz, rem, current: over ? 0 : c.current, turnLeft: !tm ? 0 : over ? tm : Math.max(0, tm - used) };
   }
 
-  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
+  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.outs = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
   function noVotes(room) { const o = {}; seatList(room).forEach((s) => { o[s] = !!(room.seats[s] && room.seats[s].bot); }); return o; }   // los bots siempre aceptan la revancha
 
   function snapshot(room, seat) {
     return {
       t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, spectators: room.spectators.size,
       names: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].name : ''; }); return o; })(),
-      connected: connectedMap(room), bots: botsOf(room), moves: room.moves,
+      connected: connectedMap(room), bots: botsOf(room), moves: room.moves, outs: room.outs,
       over: room.over, rematch: room.rematch, clock: clockInfo(room),
       disconnectedFor: disconnectedFor(room)
     };
@@ -254,7 +256,8 @@ function createPenteServer(config) {
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
     const variant = P.VARIANTS.includes(o.variant) ? o.variant : 'classic';
-    const opts = { variant, blitz: o.blitz === true, tournamentRule: variant === 'gomoku' ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
+    const ffa = o.players === 4 && o.ffa === true;
+    const opts = { ffa, variant, blitz: o.blitz === true, tournamentRule: variant === 'gomoku' || ffa ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
     const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
@@ -315,6 +318,18 @@ function createPenteServer(config) {
     return ws.room;
   }
 
+  // Todos contra todos: un asiento queda afuera (abandono, tiempo o desconexión larga). Sus fichas quedan; se saltea su turno. Si queda uno, gana.
+  function eliminateSeat(room, seat, reason) {
+    const r = P.eliminate(room.game, seat); if (!r.ok) return false;
+    const wasCurrent = room.game.current === seat;
+    room.game = r.state; room.outs.push([room.moves.length, seat]); touch(room);
+    const c = room.clock;
+    if (c && wasCurrent && room.game.status === 'playing') { c.current = room.game.current; c.since = Date.now(); }
+    broadcast(room, { t: 'out', seat, reason, at: room.moves.length, clock: clockInfo(room) });
+    if (room.game.status !== 'playing') { finish(room, room.game.winner, 'last'); return true; }
+    clockArm(room); botMaybeMove(room);
+    return true;
+  }
   function onMove(ws, msg) {
     const room = inRoom(ws); if (!room) return;
     const err = applyMove(room, ws.seat, msg.x, msg.y);
@@ -327,9 +342,13 @@ function createPenteServer(config) {
     const r = P.playMoveSeat(room.game, x, y, seat);   // el núcleo valida turno (por asiento), límites, ocupación y reglas
     if (!r.ok) return { code: 'ILLEGAL', detail: r.error };
     const c = room.clock;
-    if (c && teamOf(seat) === c.current) {                          // ¿llegó a tiempo? (si el temporizador todavía no saltó, se decide acá)
+    if (c && teamOf(room, seat) === c.current) {                          // ¿llegó a tiempo? (si el temporizador todavía no saltó, se decide acá)
       const used = Date.now() - c.since;
-      if (used > clockLimit(room) + 150) { c.rem[c.current] = Math.max(0, c.rem[c.current] - used); finish(room, otherTeam(c.current), 'timeout'); return null; }
+      if (used > clockLimit(room) + 150) {
+        c.rem[c.current] = Math.max(0, c.rem[c.current] - used);
+        if (room.opts.ffa) eliminateSeat(room, c.current, 'timeout'); else finish(room, otherTeam(c.current), 'timeout');
+        return null;
+      }
       c.rem[c.current] = Math.max(0, c.rem[c.current] - used);
     }
     room.game = r.state; room.moves.push([x, y]); touch(room);
@@ -384,14 +403,20 @@ function createPenteServer(config) {
 
   function onResign(ws) {
     const room = inRoom(ws); if (!room || gameOverNow(room) || !isFull(room)) return;
-    finish(room, otherTeam(teamOf(ws.seat)), 'resign'); touch(room);
+    if (room.opts.ffa) { eliminateSeat(room, ws.seat, 'resign'); return; }
+    finish(room, otherTeam(teamOf(room, ws.seat)), 'resign'); touch(room);
   }
 
   function onClaimWin(ws) {
     const room = inRoom(ws); if (!room || gameOverNow(room)) return;
-    const myTeam = teamOf(ws.seat);
-    const gone = seatList(room).some((s) => { const p = room.seats[s]; return teamOf(s) !== myTeam && p && !p.ws && p.leftAt && Date.now() - p.leftAt >= forfeitAfterMs; });
-    if (!gone) return send(ws, { t: 'error', code: 'CANNOT_CLAIM' });
+    const myTeam = teamOf(room, ws.seat);
+    const goneSeats = seatList(room).filter((s) => { const p = room.seats[s]; return teamOf(room, s) !== myTeam && p && !p.ws && p.leftAt && Date.now() - p.leftAt >= forfeitAfterMs; });
+    if (!goneSeats.length) return send(ws, { t: 'error', code: 'CANNOT_CLAIM' });
+    if (room.opts.ffa) {                                   // en todos contra todos se saca a los ausentes (si quedás solo, ganás)
+      let any = false; goneSeats.forEach((s) => { if (!room.game.out[s] && !gameOverNow(room)) any = eliminateSeat(room, s, 'forfeit') || any; });
+      if (!any) send(ws, { t: 'error', code: 'CANNOT_CLAIM' });
+      return;
+    }
     finish(room, myTeam, 'forfeit'); touch(room);
   }
 
@@ -422,7 +447,7 @@ function createPenteServer(config) {
         code: room.code, size: room.opts.size, tournamentRule: room.opts.tournamentRule, exactFive: room.opts.exactFive,
         players: room.opts.players,
         names: seatList(room).map((s) => (room.seats[s] ? room.seats[s].name : '')), bots: Object.keys(botsOf(room)).length,
-        variant: room.opts.variant, blitz: !!room.opts.blitz,
+        variant: room.opts.variant, blitz: !!room.opts.blitz, ffa: !!room.opts.ffa,
         status: !isFull(room) ? 'waiting' : gameOverNow(room) ? 'over' : 'playing',
         moves: room.moves.length, spectators: room.spectators.size, at: room.lastActivity
       });

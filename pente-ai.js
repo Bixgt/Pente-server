@@ -41,23 +41,32 @@
     return open === 2 ? 6 : 1;
   }
 
+  // Rivales de "p": uno en 2 jugadores (o por equipos), todos los que siguen en juego en "todos contra todos"
+  function rivalsOf(s, p) {
+    if (!s.ffa) return [P.opponent(p)];
+    var out = []; for (var q = 1; q <= 4; q++) if (q !== p && !s.out[q]) out.push(q);
+    return out;
+  }
   function cellAt(s, x, y) { return (x < 0 || y < 0 || x >= s.size || y >= s.size) ? -1 : s.board[y * s.size + x]; }   // -1 = fuera
 
   /* Nota rápida de poner "p" en (x,y): líneas que arma + líneas del rival que tapa + capturas. Barata: se usa para ordenar jugadas. */
   function quick(s, x, y, p) {
-    var q = P.opponent(p), total = 0, a, d, L, open, cx, cy, v;
+    var rv = rivalsOf(s, p), total = 0, a, d, L, open, cx, cy, v, ri;
     for (a = 0; a < 4; a++) {
-      var dx = AXES[a][0], dy = AXES[a][1];
-      for (var side = 0; side < 2; side++) {                 // side 0: yo armo; side 1: tapo al rival (como si él pusiera acá)
-        var who = side ? q : p; L = 1; open = 0;
+      var dx = AXES[a][0], dy = AXES[a][1], blockBest = 0;
+      for (var side = 0; side < 1 + rv.length; side++) {     // side 0: yo armo; después, tapo a cada rival (como si él pusiera acá); se toma el rival más peligroso
+        var who = side ? rv[side - 1] : p; L = 1; open = 0;
         for (d = 1; d < 5; d++) { cx = x + dx * d; cy = y + dy * d; v = cellAt(s, cx, cy); if (v === who) L++; else { if (v === 0) open++; break; } }
         for (d = 1; d < 5; d++) { cx = x - dx * d; cy = y - dy * d; v = cellAt(s, cx, cy); if (v === who) L++; else { if (v === 0) open++; break; } }
-        total += lineScore(L, open) * (side ? 0.92 : 1);
+        var ls = lineScore(L, open);
+        if (side) blockBest = Math.max(blockBest, ls * 0.92); else total += ls;
       }
+      total += blockBest;
     }
     var tw = s.options.capturesToWin, caps = P.captureInfo(s, x, y, p).points;
     if (caps) total += 1900 * caps + (s.captures[p] + caps >= tw ? 90000 : s.captures[p] >= tw - 2 ? 1500 : 0);
-    var theirs = P.captureInfo({ size: s.size, board: s.board, options: s.options }, x, y, q).points;           // si ÉL jugara acá, ¿capturaría? tapar vale
+    var q = rv[0], theirs = 0;
+    for (ri = 0; ri < rv.length; ri++) { var tp = P.captureInfo({ size: s.size, board: s.board, options: s.options }, x, y, rv[ri]).points; if (tp > theirs) { theirs = tp; q = rv[ri]; } }      // si ÉL jugara acá, ¿capturaría? tapar vale
     if (theirs) total += 1100 * theirs + (s.captures[q] + theirs >= tw ? 80000 : 0);
     var c = (s.size - 1) / 2; total -= (Math.abs(x - c) + Math.abs(y - c)) * 0.3;                 // desempate: el centro vale un poquito
     return total;
@@ -77,10 +86,10 @@
         var after = (cx >= 0 && cy >= 0 && cx < n && cy < n) ? b[cy * n + cx] : -1, before = (px >= 0 && py >= 0 && px < n && py < n) ? b[py * n + px] : -1;
         var open = (after === 0 ? 1 : 0) + (before === 0 ? 1 : 0), sc = lineScore(L, open);
         if (L === vuln && ((after === 0 && before > 0 && before !== v) || (before === 0 && after > 0 && after !== v))) sc -= 650;   // par con un rival de un lado y hueco del otro: lo pueden capturar
-        score += (v === p) ? sc : -sc * 1.05;
+        score += (v === p) ? sc : -sc * (s.ffa ? 0.55 : 1.05);
       }
     }
-    var q = P.opponent(p), cd = s.captures[p] - s.captures[q];
+    var rvs = rivalsOf(s, p), q = rvs[0], cd = s.captures[p], qmax = 0; rvs.forEach(function (r) { cd -= s.captures[r] / rvs.length; if (s.captures[r] > qmax) { qmax = s.captures[r]; q = r; } });
     var tw = s.options.capturesToWin;
     score += cd * 1000;
     if (s.captures[p] >= tw - 1) score += 3500; if (s.captures[q] >= tw - 1) score -= 3800;
@@ -130,6 +139,16 @@
       for (var i = 0; i < top.length; i++) { var r0 = P.playMove(state, top[i].x, top[i].y); if (r0.ok && r0.won && r0.state.winner === me) return { x: top[i].x, y: top[i].y }; }
     }
 
+    // 2b) todos contra todos: no hay búsqueda a varias jugadas (con tres rivales no sirve el alfa-beta): se elige entre las mejores por nota rápida + cómo queda el tablero
+    if (state.ffa && lv.depth > 1) {
+      var base = evaluate(state, me), top2 = cands.slice(0, lv.width + 2), bestF = null, bestS = -Infinity;
+      top2.forEach(function (c) {
+        var rr = P.playMove(state, c.x, c.y); if (!rr.ok) return;
+        var sc = rr.won ? 1e9 : c.q0 * 0.6 + (evaluate(rr.state, me) - base) * 0.4;
+        if (sc > bestS) { bestS = sc; bestF = c; }
+      });
+      if (bestF) return { x: bestF.x, y: bestF.y };
+    }
     // 2) fácil: elige entre las mejores por nota rápida (a veces se equivoca)
     if (lv.depth === 1) {
       // lo obvio no se le escapa: tapar un 4 (o ganar por capturas) casi siempre, y tapar/armar un 3 abierto la mayoría de las veces

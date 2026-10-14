@@ -12,6 +12,7 @@
 - **Reloj:** `create` acepta `timer` (por defecto `true`): 10 min en total por jugador y 1 min por jugada; si se acaba cualquiera, el servidor manda `over` con `reason:'timeout'`. Arranca al entrar el segundo jugador y en cada revancha; `sync`, `move` y `over` traen `clock {on,total,turnMs,rem,current,turnLeft}` (valores en vivo al enviar). Configurable con `createPenteServer({totalMs, turnMs})`.
 - **Variantes y blitz:** `create` acepta `variant` (`classic`, `pairs3`, `triples`, `gomoku`) y `blitz:true` (3 min por jugador en total, sin tiempo por jugada, `clock.turnMs = 0`). Las partidas de variantes o blitz no registran estadísticas.
 - **Bots (salas de 4):** `{t:'bot', level, seat?}` suma un bot en un asiento libre y `{t:'botoff', seat}` lo saca, solo antes de empezar. Los bots juegan desde el servidor con `pente-ai.js` (copia de `src/ai.js`; `python3 build.py` la regenera), aceptan siempre la revancha y no cuentan como personas conectadas.
+- **Todos contra todos:** `create` con `players:4, ffa:true`. Cada asiento es su propio color; abandonar, quedarse sin tiempo o `claimWin` (con ausentes ≥ 60 s) **eliminan** al asiento (`{t:'out', seat, reason, at, clock}`); el último en pie gana (`over.reason = 'last'`, `over.winner` = asiento). `sync.outs` lleva las eliminaciones `[jugadasHechas, asiento]` para reconstruir la partida.
 - `GET /health` responde `{"ok":true}`: sirve para despertar al servidor cuando el plan gratuito lo durmió.
 
 ## Qué NO hace (todavía)
