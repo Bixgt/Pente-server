@@ -15,6 +15,9 @@
  *  - Modo 4 jugadores (opts.players = 4): 2 contra 2. Asientos 1,2,3,4 juegan en ese orden; 1 y 3 son el equipo 1, 2 y 4 el equipo 2.
  *    Las fichas, capturas y victorias son POR EQUIPO (las fichas del equipo nunca se capturan entre sí). `current` sigue siendo el
  *    equipo (1|2), así todo lo que ya existe para 2 jugadores sigue valiendo; `seatToMove(s)` dice qué asiento (1-4) le toca.
+ *  - Variantes (opts.variant): 'classic' (por defecto; solo pares), 'pairs3' (se capturan pares Y tríos; par = 1 punto, trío = 2; gana con 5 puntos),
+ *    'triples' (solo tríos: P O O O P; cada trío = 1 punto; gana con 3), 'gomoku' (sin capturas, sin regla de torneo; gana con 5 o más en línea).
+ *    `captures[p]` cuenta PUNTOS de captura; `options.capturesToWin` es el objetivo. Blitz no es una regla del tablero: es solo cómo corre el reloj (lo maneja quien juega).
  *  - Regla de torneo (opcional, activada por defecto): la 1ª ficha del J1 va al centro y la
  *    2ª ficha del J1 debe estar a distancia >= 3 del centro (Chebyshev: fuera del cuadrado 5x5).
  */
@@ -40,9 +43,20 @@
 
   function opponent(p) { return p === P1 ? P2 : P1; }
 
+  var VARIANTS = ['classic', 'pairs3', 'triples', 'gomoku'];
+  // qué largos de grupo se capturan, cuántos puntos vale cada uno y cuántos puntos hacen falta para ganar
+  var VARIANT_RULES = {
+    classic: { sizes: [2], pts: { 2: 1 }, toWin: 5 },
+    pairs3:  { sizes: [2, 3], pts: { 2: 1, 3: 2 }, toWin: 5 },
+    triples: { sizes: [3], pts: { 3: 1 }, toWin: 3 },
+    gomoku:  { sizes: [], pts: {}, toWin: 999 }
+  };
+  function rulesOf(s) { var v = s && s.options && s.options.variant; return VARIANT_RULES[v] || VARIANT_RULES.classic; }
+
   function createGame(opts) {
     opts = opts || {};
     var size = opts.size || 19;
+    var variant = VARIANTS.indexOf(opts.variant) >= 0 ? opts.variant : 'classic', vr = VARIANT_RULES[variant];
     return {
       players: opts.players === 4 ? 4 : 2,
       size: size,
@@ -56,10 +70,11 @@
       winReasons: [],                     // 'line' | 'captures'
       winLine: null,                      // [{x,y}...] si ganó por línea
       options: {
-        tournamentRule: opts.tournamentRule !== false,
-        capturesToWin: opts.capturesToWin || 5,
+        variant: variant,
+        tournamentRule: variant === 'gomoku' ? false : opts.tournamentRule !== false,
+        capturesToWin: opts.capturesToWin || vr.toWin,
         lineToWin: opts.lineToWin || 5,
-        exactFive: !!opts.exactFive            // true: solo cuenta una línea de EXACTAMENTE lineToWin
+        exactFive: variant === 'gomoku' ? false : !!opts.exactFive            // true: solo cuenta una línea de EXACTAMENTE lineToWin
       }
     };
   }
@@ -74,7 +89,7 @@
       captures: { 1: s.captures[1], 2: s.captures[2] },
       moves: s.moves.slice(), lastMove: s.lastMove, status: s.status,
       winner: s.winner, winReasons: s.winReasons.slice(), winLine: s.winLine,
-      options: { tournamentRule: s.options.tournamentRule, capturesToWin: s.options.capturesToWin, lineToWin: s.options.lineToWin, exactFive: s.options.exactFive }
+      options: { variant: s.options.variant, tournamentRule: s.options.tournamentRule, capturesToWin: s.options.capturesToWin, lineToWin: s.options.lineToWin, exactFive: s.options.exactFive }
     };
   }
 
@@ -93,20 +108,25 @@
     return null;
   }
 
-  /** Pares que captura "player" al colocar en (x,y). Se evalúa ANTES de poner la ficha en el tablero lógico
-   *  (la ficha nueva es la P de un extremo). Devuelve lista de {x,y}. */
-  function findCaptures(s, x, y, player) {
-    var opp = opponent(player), out = [];
+  /** Grupos que captura "player" al colocar en (x,y). Se evalúa ANTES de poner la ficha en el tablero lógico
+   *  (la ficha nueva es la P de un extremo). Devuelve {cells:[{x,y}...], points} según la variante. */
+  function captureInfo(s, x, y, player) {
+    var vr = rulesOf(s), opp = opponent(player), cells = [], points = 0;
     for (var i = 0; i < DIRS8.length; i++) {
       var dx = DIRS8[i][0], dy = DIRS8[i][1];
-      var x1 = x + dx, y1 = y + dy, x2 = x + 2*dx, y2 = y + 2*dy, x3 = x + 3*dx, y3 = y + 3*dy;
-      if (!inBounds(s, x3, y3)) continue;
-      if (get(s, x1, y1) === opp && get(s, x2, y2) === opp && get(s, x3, y3) === player) {
-        out.push({ x: x1, y: y1 }, { x: x2, y: y2 });
+      for (var k = 0; k < vr.sizes.length; k++) {
+        var n = vr.sizes[k], ex = x + (n + 1) * dx, ey = y + (n + 1) * dy;
+        if (!inBounds(s, ex, ey) || get(s, ex, ey) !== player) continue;
+        var ok = true;
+        for (var j = 1; j <= n; j++) if (get(s, x + j * dx, y + j * dy) !== opp) { ok = false; break; }
+        if (!ok) continue;
+        for (j = 1; j <= n; j++) cells.push({ x: x + j * dx, y: y + j * dy });
+        points += vr.pts[n];
       }
     }
-    return out;
+    return { cells: cells, points: points };
   }
+  function findCaptures(s, x, y, player) { return captureInfo(s, x, y, player).cells; }
 
   /** Línea de >= lineToWin fichas de "player" que pasa por (x,y). Devuelve array de celdas o null. */
   function findLine(s, x, y, player) {
@@ -145,10 +165,10 @@
     if (err) return { ok: false, error: err };
 
     var n = clone(s), me = s.current;
-    var captured = findCaptures(s, x, y, me);   // sobre el tablero previo: la ficha nueva es el extremo
+    var info = captureInfo(s, x, y, me), captured = info.cells;   // sobre el tablero previo: la ficha nueva es el extremo
     n.board[y * n.size + x] = me;
     for (var i = 0; i < captured.length; i++) n.board[captured[i].y * n.size + captured[i].x] = EMPTY;
-    n.captures[me] += captured.length / 2;
+    n.captures[me] += info.points;
     n.moves.push({ x: x, y: y, player: me, seat: seatToMove(s), captured: captured });
     n.lastMove = { x: x, y: y, player: me };
 
@@ -219,7 +239,7 @@
     EMPTY: EMPTY, P1: P1, P2: P2, ERR: ERR,
     createGame: createGame, validateMove: validateMove, playMove: playMove, playMoveSeat: playMoveSeat,
     seatToMove: seatToMove, teamOfSeat: teamOfSeat, seatsOfTeam: seatsOfTeam,
-    findCaptures: findCaptures, findLine: findLine, legalMoves: legalMoves,
+    findCaptures: findCaptures, captureInfo: captureInfo, VARIANTS: VARIANTS, VARIANT_RULES: VARIANT_RULES, findLine: findLine, legalMoves: legalMoves,
     opponent: opponent, get: get, inBounds: inBounds, center: center,
     winsNeededForBestOf: winsNeededForBestOf,
     COLS: COLS, coordName: coordName, parseCoord: parseCoord
