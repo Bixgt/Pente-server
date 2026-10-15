@@ -189,16 +189,16 @@ function createPenteServer(config) {
   function clockStart(room) {
     clockStop(room); room.clock = null;
     if (!room.opts.timer) return;
-    room.clock = { rem: {}, current: 1, since: Date.now() }; clockKeys(room).forEach((k) => { room.clock.rem[k] = roomTotal(room); });
+    room.clock = { rem: {}, current: 1, since: Date.now(), started: false }; clockKeys(room).forEach((k) => { room.clock.rem[k] = roomTotal(room); });   // started: el reloj corre desde la PRIMERA ficha, no desde que se llena la sala
     clockArm(room);
   }
   function clockArm(room) {
-    clockStop(room); const c = room.clock; if (!c || gameOverNow(room)) return;
+    clockStop(room); const c = room.clock; if (!c || !c.started || gameOverNow(room)) return;
     const wait = Math.max(0, clockLimit(room) - (Date.now() - c.since)) + 30;     // un pelín de margen para el viaje de la jugada
     room.clockTimer = setTimeout(() => clockExpire(room), wait); if (room.clockTimer.unref) room.clockTimer.unref();
   }
   function clockExpire(room) {
-    room.clockTimer = null; const c = room.clock; if (!c || gameOverNow(room)) return;
+    room.clockTimer = null; const c = room.clock; if (!c || !c.started || gameOverNow(room)) return;
     if (Date.now() - c.since < clockLimit(room)) return clockArm(room);
     c.rem[c.current] = Math.max(0, c.rem[c.current] - (Date.now() - c.since));
     if (room.opts.ffa) return eliminateSeat(room, c.current, 'timeout');
@@ -206,10 +206,10 @@ function createPenteServer(config) {
   }
   function clockInfo(room) {            // valores "en vivo" al momento de enviar (los clientes cuentan desde ahí, sin depender de relojes ajenos)
     const c = room.clock; if (!c) return { on: false };
-    const over = gameOverNow(room), used = over ? 0 : Date.now() - c.since;
-    const rem = Object.assign({}, c.rem); if (!over) rem[c.current] = Math.max(0, rem[c.current] - used);
+    const over = gameOverNow(room), used = over || !c.started ? 0 : Date.now() - c.since;
+    const rem = Object.assign({}, c.rem); if (!over && c.started) rem[c.current] = Math.max(0, rem[c.current] - used);
     const tm = roomTurn(room);
-    return { on: true, total: roomTotal(room), turnMs: tm, blitz: !!room.opts.blitz, rem, current: over ? 0 : c.current, turnLeft: !tm ? 0 : over ? tm : Math.max(0, tm - used) };
+    return { on: true, started: !!c.started, total: roomTotal(room), turnMs: tm, blitz: !!room.opts.blitz, rem, current: over ? 0 : c.current, turnLeft: !tm ? 0 : over ? tm : Math.max(0, tm - used) };
   }
 
   function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.outs = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
@@ -342,6 +342,7 @@ function createPenteServer(config) {
     const r = P.playMoveSeat(room.game, x, y, seat);   // el núcleo valida turno (por asiento), límites, ocupación y reglas
     if (!r.ok) return { code: 'ILLEGAL', detail: r.error };
     const c = room.clock;
+    if (c && !c.started) { c.started = true; c.since = Date.now(); }                // primera ficha: arranca el reloj
     if (c && teamOf(room, seat) === c.current) {                          // ¿llegó a tiempo? (si el temporizador todavía no saltó, se decide acá)
       const used = Date.now() - c.since;
       if (used > clockLimit(room) + 150) {
