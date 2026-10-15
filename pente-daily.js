@@ -51,5 +51,32 @@
   }
   function aiRng(key, k) { return mulberry(hash('pente-daily-ai:' + key + ':' + k)); }
 
-  return { dayKey: dayKey, dayNumber: dayNumber, validKey: validKey, spec: spec, startState: startState, aiRng: aiRng, SIZE: SIZE };
+
+  /* ---------- Ranking ----------
+   * Del día: gana quien ganó la partida en MENOS jugadas; el tiempo desempata. Quien no ganó (perdió, empató o se rindió) figura al final, sin puesto.
+   * De la semana (lunes a domingo): cada día se dan puntos según el puesto (10, 7, 5, 4, 3, 2, 2, 2, 2, 2 y 1 para el resto de los que ganaron). */
+  var POINTS = [10, 7, 5, 4, 3, 2, 2, 2, 2, 2];
+  function addDays(key, n) { var p = key.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); }
+  function weekStart(key) { var dow = new Date(key + 'T12:00:00Z').getUTCDay(); return addDays(key, -((dow + 6) % 7)); }   // lunes
+  function byScore(a, b) { return (a.moves - b.moves) || (a.ms - b.ms) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0); }
+  function rankDay(rows) {
+    var done = (rows || []).filter(function (r) { return r && r.finished !== false; });
+    var w = done.filter(function (r) { return r.win; }).sort(byScore), o = done.filter(function (r) { return !r.win; }).sort(byScore);
+    return w.map(function (r, i) { return Object.assign({}, r, { rank: i + 1 }); }).concat(o.map(function (r) { return Object.assign({}, r, { rank: null }); }));
+  }
+  function rankWeek(byDay) {                                             // { 'AAAA-MM-DD': [filas del día] }
+    var acc = {};
+    Object.keys(byDay).forEach(function (d) {
+      rankDay(byDay[d]).forEach(function (r) {
+        var a = acc[r.uid] || (acc[r.uid] = { uid: r.uid, points: 0, wins: 0, played: 0, moves: 0, ms: 0 });
+        a.played++;
+        if (r.win) { a.wins++; a.moves += r.moves; a.ms += r.ms; a.points += r.rank <= POINTS.length ? POINTS[r.rank - 1] : 1; }
+      });
+    });
+    return Object.keys(acc).map(function (k) { return acc[k]; })
+      .sort(function (a, b) { return (b.points - a.points) || (b.wins - a.wins) || (a.moves - b.moves) || (a.ms - b.ms) || (a.uid < b.uid ? -1 : 1); })
+      .map(function (r, i) { return Object.assign(r, { rank: i + 1 }); });
+  }
+
+  return { dayKey: dayKey, addDays: addDays, weekStart: weekStart, rankDay: rankDay, rankWeek: rankWeek, POINTS: POINTS, dayNumber: dayNumber, validKey: validKey, spec: spec, startState: startState, aiRng: aiRng, SIZE: SIZE };
 });
