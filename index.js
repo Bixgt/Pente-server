@@ -30,6 +30,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const P = require('./pente-core.js');
 const AI = require('./pente-ai.js');
+const D = require('./pente-daily.js');
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0, 1 (se confunden)
 const CODE_LENGTH = 5;
@@ -513,6 +514,72 @@ function createPenteServer(config) {
     lobby.members.forEach((w) => send(w, Object.assign({ t: 'lchat' }, m)));
   }
 
+  /* ---------- Desafío diario ----------
+   * Una partida por cuenta y por día contra la máquina, desde la misma posición para todos. El servidor es el árbitro: valida cada jugada,
+   * juega por la máquina (con azar fijo del día) y mide el tiempo (desde la primera ficha hasta el final). El cliente nunca manda su puntaje.
+   * Por ahora las partidas viven en memoria: si el servidor se reinicia se pierden (el ranking en Supabase viene en la segunda pasada). */
+  const dailyGames = new Map();                                    // 'uid|AAAA-MM-DD' -> partida
+  const todayKey = config.dayKey || (() => D.dayKey());
+  function dailyPrune(today) { for (const k of dailyGames.keys()) { if (k.slice(-10) < D.dayKey(Date.parse(today + 'T12:00:00Z') - 2 * 86400000)) dailyGames.delete(k); } }
+  function dailyUid(ws, jwt) {                                    // cuenta verificada de esta conexión (se recuerda tras la primera vez)
+    if (ws.dailyUid && !jwt) return Promise.resolve(ws.dailyUid);
+    if (!jwt || typeof jwt !== 'string' || jwt.length > 4000) return Promise.resolve(ws.dailyUid || null);
+    return Promise.resolve(verifyToken(jwt)).then((uid) => { if (uid) ws.dailyUid = uid; return uid || ws.dailyUid || null; }).catch(() => null);
+  }
+  function dailyView(sp, g) {
+    const v = { t: 'daily', date: sp.date, n: sp.n, level: sp.level, size: sp.size, setup: sp.setup, status: !g ? 'new' : g.result ? 'done' : 'playing', moves: g ? g.moves : [], result: g && g.result || null };
+    if (g && !g.result) v.elapsed = g.startedAt ? Date.now() - g.startedAt : 0;
+    return v;
+  }
+  function dailyFinish(g, win, reason) {
+    const st = g.state, now = Date.now();
+    g.result = { win: !!win, draw: !win && st.status === 'draw', reason, moves: g.humanMoves, ms: g.startedAt ? now - g.startedAt : 0, captures: st.captures[1] || 0, level: g.sp.level, date: g.sp.date, n: g.sp.n };
+  }
+  async function onDailyInfo(ws, msg) {
+    const sp = D.spec(todayKey()), uid = await dailyUid(ws, msg.jwt);
+    if (!uid) return send(ws, Object.assign(dailyView(sp, null), { needAccount: true }));
+    send(ws, dailyView(sp, dailyGames.get(uid + '|' + sp.date)));
+  }
+  async function onDailyStart(ws, msg) {
+    const sp = D.spec(todayKey()), uid = await dailyUid(ws, msg.jwt);
+    if (!uid) return send(ws, { t: 'error', code: 'NEED_ACCOUNT' });
+    const key = uid + '|' + sp.date; let g = dailyGames.get(key);
+    if (!g) {
+      if (dailyGames.size > 20000) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
+      dailyPrune(sp.date);
+      g = { sp, uid, state: D.startState(sp), moves: [], humanMoves: 0, startedAt: 0, result: null }; dailyGames.set(key, g);
+    }
+    ws.dailyG = g; send(ws, dailyView(sp, g));
+  }
+  function dailyGame(ws) { return ws.dailyG || null; }
+  function onDailyMove(ws, msg) {
+    const g = dailyGame(ws); if (!g) return send(ws, { t: 'error', code: 'NOT_IN_DAILY' });
+    if (g.result) return send(ws, { t: 'error', code: 'GAME_OVER' });
+    const x = msg.x, y = msg.y;
+    if (!Number.isInteger(x) || !Number.isInteger(y)) return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+    const r = P.playMove(g.state, x, y, 1);                           // la persona siempre es el jugador 1 (negras)
+    if (!r.ok) return send(ws, { t: 'error', code: 'ILLEGAL', detail: r.error, daily: true });
+    if (!g.startedAt) g.startedAt = Date.now();                       // el tiempo corre desde la primera ficha
+    g.state = r.state; g.humanMoves++; g.moves.push([x, y, 1]);
+    if (r.state.status !== 'playing') {
+      dailyFinish(g, r.state.status === 'won' && r.state.winner === 1, 'game');
+      return send(ws, { t: 'dailyMove', x, y, ai: null, n: g.humanMoves, result: g.result });
+    }
+    let a = null;
+    try { a = AI.chooseMove(g.state, { level: g.sp.level, timeMs: 0, rng: D.aiRng(g.sp.date, g.moves.length) }); } catch (e) { a = null; }   // sin límite de tiempo: la máquina juega igual para todos
+    if (!a) { const l = P.legalMoves(g.state); a = l[0]; }
+    const ar = P.playMove(g.state, a.x, a.y, 2);
+    if (!ar.ok) { dailyFinish(g, false, 'error'); return send(ws, { t: 'dailyMove', x, y, ai: null, n: g.humanMoves, result: g.result }); }
+    g.state = ar.state; g.moves.push([a.x, a.y, 2]);
+    if (ar.state.status !== 'playing') dailyFinish(g, false, 'game');
+    send(ws, { t: 'dailyMove', x, y, ai: { x: a.x, y: a.y }, n: g.humanMoves, result: g.result });
+  }
+  function onDailyResign(ws) {
+    const g = dailyGame(ws); if (!g) return send(ws, { t: 'error', code: 'NOT_IN_DAILY' });
+    if (!g.result) dailyFinish(g, false, 'resign');
+    send(ws, { t: 'dailyMove', x: -1, y: -1, ai: null, n: g.humanMoves, result: g.result });
+  }
+
   /* ---------- Conexiones ---------- */
   wss.on('connection', (ws) => {
     ws.isAlive = true; ws.room = null; ws.seat = 0; ws.spectator = false; ws.bucket = { n: 0, t: Date.now() };
@@ -541,6 +608,10 @@ function createPenteServer(config) {
         case 'rematch': return onRematch(ws);
         case 'claimWin': return onClaimWin(ws);
         case 'resync': { if (!ws.room) return send(ws, { t: 'error', code: 'NOT_IN_ROOM' }); return send(ws, snapshot(ws.room, ws.seat)); }
+        case 'dailyInfo': return void onDailyInfo(ws, msg);
+        case 'dailyStart': return void onDailyStart(ws, msg);
+        case 'dailyMove': return onDailyMove(ws, msg);
+        case 'dailyResign': return onDailyResign(ws);
         case 'ping': return send(ws, { t: 'pong' });
         default: return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       }
