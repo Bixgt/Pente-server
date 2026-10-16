@@ -2,6 +2,9 @@
 
 Árbitro de las partidas online. Guarda cada sala en memoria y valida **cada jugada** con el mismo núcleo de reglas que usa el juego (`pente-core.js`, copia exacta de `src/core/pente.js`; `python3 build.py` la regenera). El cliente nunca decide nada.
 
+## v55
+- XP verificado: `pente-xp.js` (nuevo, copia de `src/xp.js`), `grant_xp` en Supabase (`supabase/xp.sql`). Se da al terminar el desafío diario y al terminar una partida online entre dos cuentas verificadas (tope 10 por día). El ranking del desafío incluye el XP de cada persona.
+
 ## Qué hace
 - Salas con código de 5 letras/números (sin I, O, 0, 1). El que crea es el jugador 1; en la revancha los lados se intercambian.
 - Reconexión: cada jugador recibe un token secreto y puede volver a su lugar si se cae.
