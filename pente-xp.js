@@ -10,6 +10,14 @@
   var TITLE_AT = [1, 4, 8, 13, 19, 26, 34, 43];                       // nivel desde el que rige cada título (xp.title.1 ... xp.title.8)
   var AVATAR_LEVEL = { a13: 3, a14: 5, a15: 8, a16: 11, a17: 14, a18: 18, a19: 24, a20: 30 };   // los 12 primeros avatares son libres
   var GEM_LEVEL = { oro: 6, neon: 9, coral: 12, obsidiana: 16, galaxia: 22 };                    // las 9 piedras de siempre son libres
+  // Personalizar avatar: nivel desde el que se puede elegir cada pieza (lo que no figura es libre desde el nivel 1)
+  var PART_LEVEL = {
+    body: { esbelto: 3, panzon: 6, hombros: 10, columna: 15 },
+    hair: { rodete: 2, melena: 5, rulos: 8, mohicano: 12, casco: 17 },
+    face: { lengua: 2, dormido: 3, lloron: 4, cool: 7, enamorado: 9, travieso: 11, asustado: 13, rico: 16, mareado: 20 },
+    color: { coral: 2, violeta: 4, cian: 8, blanca: 14, negra: 19 },
+    hairColor: { pelirrojo: 3, blanco: 6, celeste: 12, violeta: 18 }
+  };
   var FIRSTS = { tutorial: 50, daily: 25 };                          // premio por única vez; 'mode:<modo>' vale 20
 
   function num(v) { v = Math.floor(Number(v)); return isFinite(v) && v > 0 ? Math.min(v, CAP) : 0; }
@@ -51,6 +59,11 @@
     Object.keys(GEM_LEVEL).forEach(function (id) { var lv = GEM_LEVEL[id]; if (lv > level && (!best || lv < best.level)) best = { type: 'gem', id: id, level: lv }; });
     return best;
   }
+  function partLevel(kind, id) { return (PART_LEVEL[kind] && PART_LEVEL[kind][id]) || 1; }
+  function partOk(kind, id, level) { return level >= partLevel(kind, id); }
+  function partsAt(level) {                                          // piezas de personaje que se destraban justo en ese nivel
+    var out = []; Object.keys(PART_LEVEL).forEach(function (k) { Object.keys(PART_LEVEL[k]).forEach(function (id) { if (PART_LEVEL[k][id] === level) out.push({ kind: k, id: id }); }); }); return out;
+  }
   function avatarOk(id, level) { return !AVATAR_LEVEL[id] || level >= AVATAR_LEVEL[id]; }
   function gemOk(id, level) { return !GEM_LEVEL[id] || level >= GEM_LEVEL[id]; }
 
@@ -79,7 +92,10 @@
     } else if (ev.k === 'first') first(ev.id);
     var gained = parts.reduce(function (a, p) { return a + p.n; }, 0), from = levelOf(s.t), t1 = num(s.t + gained), to = levelOf(t1);
     s.t = t1;
-    var unlocked = []; for (var l = from.level + 1; l <= to.level; l++) unlocksAt(l).forEach(function (u) { unlocked.push({ type: u.type, id: u.id, level: l }); });
+    var unlocked = []; for (var l = from.level + 1; l <= to.level; l++) {
+      unlocksAt(l).forEach(function (u) { unlocked.push({ type: u.type, id: u.id, level: l }); });
+      var pa = partsAt(l); if (pa.length) unlocked.push({ type: 'parts', n: pa.length, level: l });
+    }
     return { xp: clean(s), gained: gained, parts: parts, from: from, to: to, ups: to.level - from.level, unlocked: unlocked };
   }
 
@@ -91,5 +107,5 @@
   function onlineGain(win) { return 20 + (win ? 20 : 0); }
 
   return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, AVATAR_LEVEL: AVATAR_LEVEL, GEM_LEVEL: GEM_LEVEL, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
-    clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, avatarOk: avatarOk, gemOk: gemOk, award: award };
+    clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, avatarOk: avatarOk, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award };
 });

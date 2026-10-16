@@ -529,8 +529,8 @@ function createPenteServer(config) {
     return {
       load: async (uid, day) => rows.get(uid + '|' + day) || null,
       save: async (row) => { rows.set(row.uid + '|' + row.day, Object.assign({}, rows.get(row.uid + '|' + row.day), row)); },
-      day: async (day) => [...rows.values()].filter((r) => r.day === day && r.finished),
-      history: async (uid, from) => [...rows.values()].filter((r) => r.uid === uid && r.finished && r.day >= from).map((r) => r.day),
+      day: async (day) => [...rows.values()].filter((r) => r.day === day && (r.finished || r.moves >= 1)),
+      history: async (uid, from) => [...rows.values()].filter((r) => r.uid === uid && (r.finished || r.moves >= 1) && r.day >= from).map((r) => r.day),
       names: async (uids) => { const o = {}; uids.forEach((u) => { const r = [...rows.values()].find((x) => x.uid === u && x.name); o[u] = { name: r ? r.name : 'Jugador', avatar: '' }; }); return o; },
     };
   };
@@ -544,8 +544,8 @@ function createPenteServer(config) {
         const r = await fetch(sbUrl + '/rest/v1/daily_scores?on_conflict=uid,day', { method: 'POST', headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(body) });
         if (!r.ok) throw new Error('sb ' + r.status);
       },
-      history: async (uid, from) => (await get('daily_scores?uid=eq.' + q(uid) + '&finished=eq.true&day=gte.' + q(from) + '&select=day&limit=20')).map((r) => r.day),
-      day: (day) => get('daily_scores?day=eq.' + q(day) + '&finished=eq.true&select=uid,win,draw,moves,ms,level,captures,reason&limit=1000'),
+      history: async (uid, from) => (await get('daily_scores?uid=eq.' + q(uid) + '&or=(finished.eq.true,moves.gte.1)&day=gte.' + q(from) + '&select=day&limit=20')).map((r) => r.day),
+      day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason&limit=1000'),
       names: async (uids) => {
         const o = {}; if (!uids.length) return o;
         const a = await get('profiles?id=in.(' + uids.map(q).join(',') + ')&select=id,name,avatar');
@@ -652,7 +652,12 @@ function createPenteServer(config) {
   async function onDailyInfo(ws, msg) {
     const sp = D.spec(todayKey()), uid = await dailyUid(ws, msg.jwt);
     if (!uid) return send(ws, Object.assign(dailyView(sp, null), { needAccount: true }));
-    send(ws, dailyView(sp, await dailyFind(uid, sp)));
+    const g = await dailyFind(uid, sp), v = dailyView(sp, g); v.played = await playedDays(uid, sp);
+    send(ws, v);
+  }
+  // Días en que esta cuenta jugó (con al menos una ficha), para que la racha sea la misma en todos sus aparatos
+  async function playedDays(uid, sp) {
+    try { return [...new Set(await dailyDb.history(uid, D.addDays(sp.date, -45)))].sort().slice(-46); } catch (e) { return []; }
   }
   async function onDailyStart(ws, msg) {
     const sp = D.spec(todayKey()), uid = await dailyUid(ws, msg.jwt);
@@ -666,7 +671,7 @@ function createPenteServer(config) {
       if (!g) { g = { sp, uid, state: D.startState(sp), moves: [], humanMoves: 0, startedAt: 0, result: null, name: cleanName(msg.name, 'Jugador') }; dailyGames.set(key, g); await dailyPersist(g); }   // el intento queda guardado desde ya
     }
     if (msg.name && !g.name) g.name = cleanName(msg.name, 'Jugador');
-    ws.dailyG = g; send(ws, dailyView(sp, g));
+    ws.dailyG = g; const v = dailyView(sp, g); v.played = await playedDays(uid, sp); send(ws, v);
   }
   function dailyGame(ws) { return ws.dailyG || null; }
   function onDailyMove(ws, msg) {
@@ -703,7 +708,7 @@ function createPenteServer(config) {
     const uid = await dailyUid(ws, msg.jwt), today = todayKey();
     let b; try { b = await buildBoard(today); } catch (e) { return send(ws, { t: 'error', code: 'SERVER_ERROR' }); }
     const nm = (u) => (b.names[u] && b.names[u].name) || 'Jugador', av = (u) => (b.names[u] && b.names[u].avatar) || '', xp = (u) => b.xps[u] || 0;
-    const dayRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), xp: xp(r.uid), win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid });
+    const dayRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), xp: xp(r.uid), playing: !!r.playing, win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid });
     const weekRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), xp: xp(r.uid), points: r.points, wins: r.wins, played: r.played, moves: r.moves, ms: r.ms, me: r.uid === uid });
     const cut = (list, f) => { const top = list.slice(0, BOARD_TOP).map(f); const mine = list.findIndex((r) => r.uid === uid); return { rows: top, mine: mine >= BOARD_TOP ? f(list[mine]) : null, total: list.length }; };
     send(ws, { t: 'dailyBoard', date: b.today, weekFrom: b.from, today: cut(b.dayRank, dayRow), week: cut(b.weekRank, weekRow) });

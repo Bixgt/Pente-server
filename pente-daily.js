@@ -59,10 +59,12 @@
   function addDays(key, n) { var p = key.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); }
   function weekStart(key) { var dow = new Date(key + 'T12:00:00Z').getUTCDay(); return addDays(key, -((dow + 6) % 7)); }   // lunes
   function byScore(a, b) { return (a.moves - b.moves) || (a.ms - b.ms) || (a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0); }
-  function rankDay(rows) {
-    var done = (rows || []).filter(function (r) { return r && r.finished !== false; });
-    var w = done.filter(function (r) { return r.win; }).sort(byScore), o = done.filter(function (r) { return !r.win; }).sort(byScore);
-    return w.map(function (r, i) { return Object.assign({}, r, { rank: i + 1 }); }).concat(o.map(function (r) { return Object.assign({}, r, { rank: null }); }));
+  function rankDay(rows) {                                               // ganaron (por jugadas y tiempo) → terminaron sin ganar → siguen jugando / lo dejaron a medias
+    var all = (rows || []).filter(function (r) { return r; });
+    var w = all.filter(function (r) { return r.finished !== false && r.win; }).sort(byScore), o = all.filter(function (r) { return r.finished !== false && !r.win; }).sort(byScore), p = all.filter(function (r) { return r.finished === false; }).sort(byScore);
+    return w.map(function (r, i) { return Object.assign({}, r, { rank: i + 1 }); })
+      .concat(o.map(function (r) { return Object.assign({}, r, { rank: null }); }))
+      .concat(p.map(function (r) { return Object.assign({}, r, { rank: null, playing: true }); }));
   }
   function rankWeek(byDay) {                                             // { 'AAAA-MM-DD': [filas del día] }
     var acc = {};

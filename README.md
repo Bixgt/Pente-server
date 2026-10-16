@@ -2,6 +2,9 @@
 
 Árbitro de las partidas online. Guarda cada sala en memoria y valida **cada jugada** con el mismo núcleo de reglas que usa el juego (`pente-core.js`, copia exacta de `src/core/pente.js`; `python3 build.py` la regenera). El cliente nunca decide nada.
 
+## v56
+- El ranking del desafío incluye a quien empezó y no terminó (`playing`), y la racha del XP cuenta esos días.
+
 ## v55
 - XP verificado: `pente-xp.js` (nuevo, copia de `src/xp.js`), `grant_xp` en Supabase (`supabase/xp.sql`). Se da al terminar el desafío diario y al terminar una partida online entre dos cuentas verificadas (tope 10 por día). El ranking del desafío incluye el XP de cada persona.
 
@@ -52,3 +55,6 @@ Reglas: cuentan solo partidas entre dos cuentas distintas con sesión iniciada, 
 
 ## Entrar con nombre + contraseña (v33)
 Usa las mismas 3 variables de arriba, más correr `supabase/password.sql`. Endpoint: `POST /login` con `{name, password}` → sesión de Supabase (o 401 con el mismo error para nombre/contraseña malos, 429 si hay demasiados intentos, 503 si falta configurar). Respeta `ALLOWED_ORIGINS`.
+
+## v60
+- `playedDays(uid)`: historial de ~45 días del usuario, enviado como `played` en `daily` info/start para sincronizar la racha entre aparatos.
