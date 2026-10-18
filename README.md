@@ -64,3 +64,6 @@ Usa las mismas 3 variables de arriba, más correr `supabase/password.sql`. Endpo
 - Invitaciones a amigos: `{t:'hi', jwt}` registra presencia (una cuenta puede tener varias conexiones); el anfitrión crea con `opts.hold:true` (nadie más se puede sentar, error `RESERVED`) y manda `{t:'invite', to, code, jwt, avatar, country}`. Se chequea la amistad en `friendships` (`friendsDb.are`, inyectable en tests). Respuestas: `inviteRes {ok, reason: offline|notfriends|rate|bad|error}`, `inviteDeclined`. Las salas reservadas que esperan no salen en la lista pública.
 - XP que ven los demás en el ranking: mayor entre `xp_v` y `stats.xp.t` (`shownXp`). `country` de cada jugador en las filas del ranking (`prefs.country`).
 - Requiere correr `supabase/v62.sql`.
+
+## v63
+- `{t:'seek', jwt, avatar, country}`: el anfitrión de una sala pública (2 jugadores) que espera rival avisa a todas las cuentas con presencia (`hi`) que no estén en una sala. Respuesta `seekRes {ok, n | reason: rate|bad|login|error}`; los demás reciben `{t:'looking', code, from, opts}`. Límite: 1 por minuto por cuenta.

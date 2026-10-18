@@ -294,6 +294,22 @@ function createPenteServer(config) {
       live.forEach((w) => send(w, pl)); send(ws, { t: 'inviteRes', ok: true, code: room.code });
     }).catch(() => bad('error'));
   }
+  /* "Buscar partida": el anfitrión (sala pública esperando rival) avisa a todas las cuentas conectadas. Máximo un aviso por minuto por cuenta. */
+  const lastSeek = new Map();
+  function onSeek(ws, msg) {
+    const room = ws.room, bad = (reason) => send(ws, { t: 'seekRes', ok: false, reason });
+    if (!room || ws.spectator || ws.seat !== 1 || !room.seats[1] || room.seats[1].ws !== ws || isFull(room) || !room.public || room.opts.players !== 2) return bad('bad');
+    dailyUid(ws, msg.jwt).then((from) => {
+      if (!from) return bad('login');
+      const now = Date.now(); if (now - (lastSeek.get(from) || 0) < 60000) return bad('rate'); lastSeek.set(from, now);
+      if (lastSeek.size > 2000) for (const [k, v] of lastSeek) if (now - v > 60000) lastSeek.delete(k);
+      const av = AV_OK.test(String(msg.avatar || '')) ? String(msg.avatar) : '', co = /^[A-Z]{2}$/.test(String(msg.country || '')) ? String(msg.country) : '';
+      const pl = { t: 'looking', code: room.code, from: { name: room.seats[1].name, avatar: av, country: co }, opts: { size: room.opts.size, variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet } };
+      let n = 0;
+      presence.forEach((set, uid) => { if (uid === from) return; const live = [...set].filter((w) => w.readyState === 1 && !w.room); if (live.length) { n++; live.forEach((w) => send(w, pl)); } });
+      send(ws, { t: 'seekRes', ok: true, n });
+    }).catch(() => bad('error'));
+  }
   function onInviteNo(ws, msg) {
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room || !ws.suid || room.reserved !== ws.suid) return;
@@ -791,6 +807,7 @@ function createPenteServer(config) {
         case 'hi': return onHi(ws, msg);
         case 'invite': return onInvite(ws, msg);
         case 'inviteNo': return onInviteNo(ws, msg);
+        case 'seek': return onSeek(ws, msg);
         case 'rejoin': lobbyLeave(ws); return onRejoin(ws, msg);
         case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
         case 'spectate': lobbyLeave(ws); return onSpectate(ws, msg);
