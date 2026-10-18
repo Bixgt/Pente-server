@@ -10,6 +10,7 @@
  *
  * Protocolo (JSON). Cliente -> servidor:
  *   {t:'create', name, jwt?, opts:{ffa: bool (4 jugadores, todos contra todos), variant: 'classic'|'pairs3'|'triples'|'gomoku', blitz: bool, bullet: bool (1 min por jugador), tournamentRule, exactFive, size: 13|19, players: 2|4, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
+ *   {t:'closeRoom', code, token}   (cerrar a mano la sala propia mientras espera rival; responde {t:'roomClosed'})   create/join aceptan dev:'<id del aparato>': una sola sala en espera por aparato
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
  *   {t:'lobby', on, name}  (entrar/salir del chat del lobby)   {t:'lchat', text, name}  (máx. 160 caracteres, 1 cada 1,2 s, sin links)
  *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
@@ -42,6 +43,7 @@ const MAX_LISTED = 50;                        // salas públicas que devuelve el
 const FORFEIT_AFTER_MS = 60 * 1000;           // el rival puede reclamar victoria si estuvo desconectado este tiempo
 const ROOM_IDLE_TTL_MS = 2 * 60 * 60 * 1000;  // sala sin actividad: se borra
 const HEARTBEAT_MS = 25 * 1000;
+const EMPTY_WAIT_MS = 15 * 60 * 1000;        // sala que espera rival y NO tiene a nadie conectado: se cierra sola pasado este tiempo
 const TOTAL_MS = 10 * 60 * 1000;             // reloj: tiempo total por jugador
 const TURN_MS = 60 * 1000;                   // reloj: tiempo máximo por jugada
 const BULLET_MS = 60 * 1000;                // bullet: 1 minuto por jugador en total, sin tiempo por jugada
@@ -74,6 +76,7 @@ const newToken = () => crypto.randomBytes(16).toString('hex');
 function createPenteServer(config) {
   config = config || {};
   const allowedOrigins = (config.allowedOrigins || []).filter(Boolean);
+  const emptyWaitMs = config.emptyWaitMs != null ? config.emptyWaitMs : EMPTY_WAIT_MS;
   const forfeitAfterMs = config.forfeitAfterMs != null ? config.forfeitAfterMs : FORFEIT_AFTER_MS;
   const totalMs = config.totalMs != null ? config.totalMs : TOTAL_MS, turnMs = config.turnMs != null ? config.turnMs : TURN_MS, blitzMs = config.blitzMs != null ? config.blitzMs : BLITZ_MS, bulletMs = config.bulletMs != null ? config.bulletMs : BULLET_MS;
   const roomTotal = (room) => (room.opts.bullet ? bulletMs : room.opts.blitz ? blitzMs : totalMs), roomTurn = (room) => (room.opts.blitz || room.opts.bullet ? 0 : turnMs);   // 0 = sin límite por jugada
@@ -326,6 +329,23 @@ function createPenteServer(config) {
   }
 
   /* ---------- Mensajes ---------- */
+  /* Sala de espera persistente: el que la creó puede salir y volver (rejoin con su token) sin que se cierre; solo se cierra si la cierra él a mano,
+   * si crea otra desde el mismo aparato (dev), o sola cuando queda sin nadie conectado más de emptyWaitMs. */
+  function cleanDev(v) { v = String(v || ''); return /^[A-Za-z0-9_-]{12,64}$/.test(v) ? v : ''; }
+  function isWaiting(room) { return !isFull(room) && !room.moves.length; }
+  function closeRoomNow(room, why) {
+    rooms.delete(room.code);
+    seatList(room).forEach((s) => { const p = room.seats[s]; if (p && p.ws) { send(p.ws, { t: 'roomClosed', why }); p.ws.room = null; p.ws.seat = 0; } });
+  }
+  function closeOwned(dev, except) { rooms.forEach((r) => { if (r !== except && r.owner === dev && isWaiting(r)) closeRoomNow(r, 'replaced'); }); }
+  function onCloseRoom(ws, msg) {
+    const room = rooms.get(String(msg.code || '').toUpperCase().trim());
+    if (!room) return send(ws, { t: 'roomClosed', why: 'gone' });                 // ya no existía: para el cliente es lo mismo
+    if (!room.ownerToken || room.ownerToken !== String(msg.token || '')) return send(ws, { t: 'error', code: 'BAD_TOKEN' });
+    if (!isWaiting(room)) return send(ws, { t: 'error', code: 'ROOM_STARTED' });
+    closeRoomNow(room, 'owner'); send(ws, { t: 'roomClosed', why: 'owner' });
+  }
+
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
@@ -334,10 +354,11 @@ function createPenteServer(config) {
     const variant = P.VARIANTS.includes(o.variant) ? o.variant : 'classic';
     const ffa = o.players === 4 && o.ffa === true;
     const opts = { ffa, variant, blitz: o.blitz === true && o.bullet !== true, bullet: o.bullet === true, tournamentRule: variant === 'gomoku' || ffa ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true || o.bullet === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
-    const room = { code, opts, public: o.public === true, reserved: o.hold === true ? '*' : '',  spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
+    const dev = cleanDev(msg.dev); if (dev) closeOwned(dev, null);          // una sola sala en espera por aparato: la anterior se cierra
+    const room = { code, owner: dev, emptySince: 0, opts, public: o.public === true, reserved: o.hold === true ? '*' : '',  spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
-    room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[1], msg.jwt);
+    room.ownerToken = token; room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[1], msg.jwt);
     rooms.set(code, room);
     attach(ws, room, 1);
     send(ws, { t: 'joined', code, token, you: 1 });
@@ -352,6 +373,7 @@ function createPenteServer(config) {
     if (!seat) return send(ws, { t: 'error', code: 'ROOM_FULL' });
     const token = newToken();
     room.seats[seat] = { name: cleanName(msg.name, 'Jugador ' + seat), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[seat], msg.jwt);
+    const jdev = cleanDev(msg.dev); if (jdev) closeOwned(jdev, room);          // si se une a otra sala, la suya en espera se cierra
     attach(ws, room, seat); touch(room);
     if (isFull(room)) clockStart(room);                // ya están todos: corre el reloj del primero
     send(ws, { t: 'joined', code: room.code, token, you: seat });
@@ -386,7 +408,7 @@ function createPenteServer(config) {
     announcePresence(room);
   }
 
-  function attach(ws, room, seat) { ws.room = room; ws.seat = seat; room.seats[seat].ws = ws; room.seats[seat].leftAt = 0; }
+  function attach(ws, room, seat) { room.emptySince = 0; ws.room = room; ws.seat = seat; room.seats[seat].ws = ws; room.seats[seat].leftAt = 0; }
 
   function inRoom(ws) {
     if (ws.spectator) { send(ws, { t: 'error', code: 'NOT_A_PLAYER' }); return null; }
@@ -809,6 +831,7 @@ function createPenteServer(config) {
         case 'inviteNo': return onInviteNo(ws, msg);
         case 'seek': return onSeek(ws, msg);
         case 'rejoin': lobbyLeave(ws); return onRejoin(ws, msg);
+        case 'closeRoom': return onCloseRoom(ws, msg);
         case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
         case 'spectate': lobbyLeave(ws); return onSpectate(ws, msg);
         case 'chat': return onChat(ws, msg);
@@ -838,6 +861,7 @@ function createPenteServer(config) {
       const p = room.seats[ws.seat];
       if (p && p.ws === ws) {                         // si ya lo reemplazó otra conexión, no se marca como ido
         p.ws = null; p.leftAt = Date.now();
+        if (!humanOnline(room)) room.emptySince = Date.now();
         announcePresence(room);
       }
     });
@@ -848,7 +872,10 @@ function createPenteServer(config) {
   const timer = setInterval(() => {
     wss.clients.forEach((ws) => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} });
     const now = Date.now();
-    rooms.forEach((room, code) => { if (now - room.lastActivity > ROOM_IDLE_TTL_MS) rooms.delete(code); });
+    rooms.forEach((room, code) => {
+      if (now - room.lastActivity > ROOM_IDLE_TTL_MS) rooms.delete(code);
+      else if (isWaiting(room) && !humanOnline(room) && room.emptySince && now - room.emptySince > emptyWaitMs) rooms.delete(code);   // esperaba rival y se fue todo el mundo
+    });
   }, config.heartbeatMs || HEARTBEAT_MS);
   timer.unref();
 
