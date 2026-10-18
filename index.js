@@ -9,7 +9,7 @@
  * Si se configuran SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_KEY, las partidas entre dos cuentas verificadas se registran en Supabase.
  *
  * Protocolo (JSON). Cliente -> servidor:
- *   {t:'create', name, jwt?, opts:{ffa: bool (4 jugadores, todos contra todos), variant: 'classic'|'pairs3'|'triples'|'gomoku', blitz: bool, tournamentRule, exactFive, size: 13|19, players: 2|4, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
+ *   {t:'create', name, jwt?, opts:{ffa: bool (4 jugadores, todos contra todos), variant: 'classic'|'pairs3'|'triples'|'gomoku', blitz: bool, bullet: bool (1 min por jugador), tournamentRule, exactFive, size: 13|19, players: 2|4, public: bool}}   {t:'join', code, name, jwt?}   {t:'rejoin', code, token}
  *   {t:'list'}   {t:'spectate', code}      (solo las salas PÚBLICAS se listan y se pueden mirar)
  *   {t:'lobby', on, name}  (entrar/salir del chat del lobby)   {t:'lchat', text, name}  (máx. 160 caracteres, 1 cada 1,2 s, sin links)
  *   {t:'chat', text}   (jugadores y espectadores; máx. 200 caracteres, 1 mensaje cada 0,7 s)
@@ -44,6 +44,7 @@ const ROOM_IDLE_TTL_MS = 2 * 60 * 60 * 1000;  // sala sin actividad: se borra
 const HEARTBEAT_MS = 25 * 1000;
 const TOTAL_MS = 10 * 60 * 1000;             // reloj: tiempo total por jugador
 const TURN_MS = 60 * 1000;                   // reloj: tiempo máximo por jugada
+const BULLET_MS = 60 * 1000;                // bullet: 1 minuto por jugador en total, sin tiempo por jugada
 const BLITZ_MS = 3 * 60 * 1000;               // blitz: 3 minutos por jugador en total, sin tiempo por jugada
 const BOT_LEVELS = ['beginner', 'easy', 'medium', 'hard'];      // bots que se pueden sumar a una sala de 4 (la máquina juega desde el servidor)
 const BOT_THINK_MS = { beginner: [900, 1800], easy: [900, 1700], medium: [700, 1400], hard: [500, 1000] }, BOT_CALC_MS = { beginner: 0, easy: 0, medium: 300, hard: 450 };
@@ -74,8 +75,8 @@ function createPenteServer(config) {
   config = config || {};
   const allowedOrigins = (config.allowedOrigins || []).filter(Boolean);
   const forfeitAfterMs = config.forfeitAfterMs != null ? config.forfeitAfterMs : FORFEIT_AFTER_MS;
-  const totalMs = config.totalMs != null ? config.totalMs : TOTAL_MS, turnMs = config.turnMs != null ? config.turnMs : TURN_MS, blitzMs = config.blitzMs != null ? config.blitzMs : BLITZ_MS;
-  const roomTotal = (room) => (room.opts.blitz ? blitzMs : totalMs), roomTurn = (room) => (room.opts.blitz ? 0 : turnMs);   // 0 = sin límite por jugada
+  const totalMs = config.totalMs != null ? config.totalMs : TOTAL_MS, turnMs = config.turnMs != null ? config.turnMs : TURN_MS, blitzMs = config.blitzMs != null ? config.blitzMs : BLITZ_MS, bulletMs = config.bulletMs != null ? config.bulletMs : BULLET_MS;
+  const roomTotal = (room) => (room.opts.bullet ? bulletMs : room.opts.blitz ? blitzMs : totalMs), roomTurn = (room) => (room.opts.blitz || room.opts.bullet ? 0 : turnMs);   // 0 = sin límite por jugada
   const rooms = new Map();
   /* Cuentas: el navegador manda su sesión de Supabase (jwt); el servidor la verifica con Supabase y recuerda el uid.
    * Las partidas terminadas entre DOS cuentas verificadas se registran en Supabase (online.sql). Sin esto, no se cuenta nada. */
@@ -211,7 +212,7 @@ function createPenteServer(config) {
     const over = gameOverNow(room), used = over || !c.started ? 0 : Date.now() - c.since;
     const rem = Object.assign({}, c.rem); if (!over && c.started) rem[c.current] = Math.max(0, rem[c.current] - used);
     const tm = roomTurn(room);
-    return { on: true, started: !!c.started, total: roomTotal(room), turnMs: tm, blitz: !!room.opts.blitz, rem, current: over ? 0 : c.current, turnLeft: !tm ? 0 : over ? tm : Math.max(0, tm - used) };
+    return { on: true, started: !!c.started, total: roomTotal(room), turnMs: tm, blitz: !!(room.opts.blitz || room.opts.bullet), bullet: !!room.opts.bullet, rem, current: over ? 0 : c.current, turnLeft: !tm ? 0 : over ? tm : Math.max(0, tm - used) };
   }
 
   function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.outs = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
@@ -242,7 +243,7 @@ function createPenteServer(config) {
   // Solo cuenta si juegan dos cuentas distintas y verificadas, y la partida tuvo un mínimo de jugadas. Una vez por partida.
   function record(room, winner, reason) {
     const s1 = room.seats[1], s2 = room.seats[2];
-    if (room.recorded || room.opts.players === 4 || room.opts.variant !== 'classic' || room.opts.blitz || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
+    if (room.recorded || room.opts.players === 4 || room.opts.variant !== 'classic' || room.opts.blitz || room.opts.bullet || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
     room.recorded = true;
     const day = todayKey(), gid = 'online:' + require('crypto').randomUUID(), w = winner === 1 || winner === 2 ? winner : 0;
     [1, 2].forEach((k) => { grantXp(room.seats[k].uid, gid, XP.onlineGain(w === k), 'online', day, XP.ONLINE_DAILY_CAP); });
@@ -253,6 +254,61 @@ function createPenteServer(config) {
     Promise.resolve(verifyToken(jwt)).then((uid) => { if (uid) seat.uid = uid; }).catch(() => {});
   }
 
+  /* ---------- Presencia e invitaciones a amigos ----------
+   * Con la sesión iniciada, el navegador mantiene una conexión liviana ({t:'hi', jwt}) para que sus amigos puedan invitarlo a jugar.
+   * El anfitrión crea la sala (con hold:true: nadie más puede sentarse) y manda {t:'invite', to, code}; si el amigo está conectado y
+   * es amigo de verdad (se chequea en la base), recibe la invitación. Si acepta entra con el código; si no, la sala se libera. */
+  const presence = new Map();                                      // uid -> conexiones de esa cuenta
+  const sbFriends = () => ({
+    are: async (a, b) => {
+      const q = encodeURIComponent, r = await fetch(sbUrl + '/rest/v1/friendships?status=eq.accepted&or=(and(a.eq.' + q(a) + ',b.eq.' + q(b) + '),and(a.eq.' + q(b) + ',b.eq.' + q(a) + '))&select=a&limit=1', { headers: svcHeaders() });
+      if (!r.ok) throw new Error('sb ' + r.status); return (await r.json()).length > 0;
+    },
+  });
+  const friendsDb = config.friendsDb || (sbUrl && sbService ? sbFriends() : { are: async () => false });
+  const presenceDel = (ws) => { if (!ws.suid) return; const set = presence.get(ws.suid); if (set) { set.delete(ws); if (!set.size) presence.delete(ws.suid); } ws.suid = null; };
+  function onHi(ws, msg) {
+    dailyUid(ws, msg.jwt).then((uid) => {
+      if (!uid) return send(ws, { t: 'hi', ok: false });
+      if (ws.suid && ws.suid !== uid) presenceDel(ws);
+      ws.suid = uid; if (!presence.has(uid)) presence.set(uid, new Set()); presence.get(uid).add(ws);
+      send(ws, { t: 'hi', ok: true });
+    });
+  }
+  const AV_OK = /^[a-z][a-z0-9]{0,15}$|^c(\.[a-z]{3,12}){5}$/;
+  function onInvite(ws, msg) {
+    const room = ws.room, bad = (reason) => send(ws, { t: 'inviteRes', ok: false, reason });
+    if (!room || ws.spectator || ws.seat !== 1 || !room.seats[1] || room.seats[1].ws !== ws || isFull(room)) return bad('bad');
+    const now = Date.now(); if (now - (ws.lastInvite || 0) < 3000) return bad('rate'); ws.lastInvite = now;
+    const to = String(msg.to || '');
+    if (!/^[0-9a-f-]{36}$/i.test(to)) return bad('bad');
+    dailyUid(ws, msg.jwt).then(async (from) => {
+      if (!from || from === to) return bad('bad');
+      let friends = false; try { friends = await friendsDb.are(from, to); } catch (e) { return bad('error'); }
+      if (!friends) return bad('notfriends');
+      const live = [...(presence.get(to) || [])].filter((w) => w.readyState === 1);
+      if (!live.length) { room.reserved = ''; return bad('offline'); }
+      room.reserved = to;
+      const av = AV_OK.test(String(msg.avatar || '')) ? String(msg.avatar) : '', co = /^[A-Z]{2}$/.test(String(msg.country || '')) ? String(msg.country) : '';
+      const pl = { t: 'invite', code: room.code, from: { name: room.seats[1].name, avatar: av, country: co }, watch: !!room.public, opts: { size: room.opts.size, variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet } };
+      live.forEach((w) => send(w, pl)); send(ws, { t: 'inviteRes', ok: true, code: room.code });
+    }).catch(() => bad('error'));
+  }
+  function onInviteNo(ws, msg) {
+    const room = rooms.get(String(msg.code || '').toUpperCase().trim());
+    if (!room || !ws.suid || room.reserved !== ws.suid) return;
+    room.reserved = '';
+    const s = room.seats[1]; if (s && s.ws) send(s.ws, { t: 'inviteDeclined', code: room.code, name: cleanName(msg.name, 'Tu amigo'), reason: msg.reason === 'busy' ? 'busy' : 'no' });
+  }
+  function joinGuarded(ws, msg) {                                  // una sala reservada para un amigo solo la puede ocupar esa cuenta
+    const room = rooms.get(String(msg.code || '').toUpperCase().trim());
+    if (!room || !room.reserved || isFull(room)) return onJoin(ws, msg);
+    Promise.resolve(msg.jwt ? verifyToken(msg.jwt) : null).catch(() => null).then((uid) => {
+      if (uid && uid === room.reserved) return onJoin(ws, msg);
+      send(ws, { t: 'error', code: 'RESERVED' });
+    });
+  }
+
   /* ---------- Mensajes ---------- */
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
@@ -261,8 +317,8 @@ function createPenteServer(config) {
     const o = msg.opts || {};
     const variant = P.VARIANTS.includes(o.variant) ? o.variant : 'classic';
     const ffa = o.players === 4 && o.ffa === true;
-    const opts = { ffa, variant, blitz: o.blitz === true, tournamentRule: variant === 'gomoku' || ffa ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
-    const room = { code, opts, public: o.public === true, spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
+    const opts = { ffa, variant, blitz: o.blitz === true && o.bullet !== true, bullet: o.bullet === true, tournamentRule: variant === 'gomoku' || ffa ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true || o.bullet === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
+    const room = { code, opts, public: o.public === true, reserved: o.hold === true ? '*' : '',  spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
     room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0, uid: '' }; bindAccount(room.seats[1], msg.jwt);
@@ -446,13 +502,14 @@ function createPenteServer(config) {
     const out = [];
     rooms.forEach((room) => {
       if (!room.public) return;
+      if (room.reserved && !isFull(room)) return;                    // sala armada para un amigo: no se ofrece a otros mientras espera
       const c = connectedMap(room);
       if (!humanOnline(room)) return;                                // sala fantasma: ninguna persona conectada (los bots no cuentan)
       out.push({
         code: room.code, size: room.opts.size, tournamentRule: room.opts.tournamentRule, exactFive: room.opts.exactFive,
         players: room.opts.players,
         names: seatList(room).map((s) => (room.seats[s] ? room.seats[s].name : '')), bots: Object.keys(botsOf(room)).length,
-        variant: room.opts.variant, blitz: !!room.opts.blitz, ffa: !!room.opts.ffa,
+        variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet, ffa: !!room.opts.ffa,
         status: !isFull(room) ? 'waiting' : gameOverNow(room) ? 'over' : 'playing',
         moves: room.moves.length, spectators: room.spectators.size, at: room.lastActivity
       });
@@ -548,8 +605,8 @@ function createPenteServer(config) {
       day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason&limit=1000'),
       names: async (uids) => {
         const o = {}; if (!uids.length) return o;
-        const a = await get('profiles?id=in.(' + uids.map(q).join(',') + ')&select=id,name,avatar');
-        a.forEach((p) => { o[p.id] = { name: p.name || 'Jugador', avatar: p.avatar || '' }; }); return o;
+        const a = await get('profiles?id=in.(' + uids.map(q).join(',') + ')&select=id,name,avatar,country:prefs->>country');
+        a.forEach((p) => { o[p.id] = { name: p.name || 'Jugador', avatar: p.avatar || '', country: /^[A-Z]{2}$/.test(p.country || '') ? p.country : '' }; }); return o;
       },
     };
   };
@@ -566,6 +623,8 @@ function createPenteServer(config) {
       totals: async (uids) => { const o = {}; uids.forEach((u) => { o[u] = tot.get(u) || 0; }); return o; },
     };
   };
+  /* Nivel que ven los demás: el mayor entre el XP verificado y el que la cuenta sincronizó en su perfil (stats.xp.t, ver supabase/xp2.sql) */
+  const shownXp = (v, xpt) => Math.max(Number(v) || 0, /^[0-9]{1,8}$/.test(String(xpt)) ? Math.min(Number(xpt), 10000000) : 0);
   const sbXp = () => {
     const q = encodeURIComponent;
     return {
@@ -575,8 +634,9 @@ function createPenteServer(config) {
       },
       totals: async (uids) => {
         const o = {}; if (!uids.length) return o;
-        const r = await fetch(sbUrl + '/rest/v1/profiles?id=in.(' + uids.map(q).join(',') + ')&select=id,xp_v', { headers: svcHeaders() });
-        if (!r.ok) throw new Error('sb ' + r.status); (await r.json()).forEach((p) => { o[p.id] = p.xp_v || 0; }); return o;
+        const r = await fetch(sbUrl + '/rest/v1/profiles?id=in.(' + uids.map(q).join(',') + ')&select=id,xp_v,xpt:stats->xp->>t', { headers: svcHeaders() });
+        if (!r.ok) throw new Error('sb ' + r.status);
+        (await r.json()).forEach((p) => { o[p.id] = shownXp(p.xp_v, p.xpt); }); return o;
       },
     };
   };
@@ -707,9 +767,9 @@ function createPenteServer(config) {
   async function onDailyBoard(ws, msg) {
     const uid = await dailyUid(ws, msg.jwt), today = todayKey();
     let b; try { b = await buildBoard(today); } catch (e) { return send(ws, { t: 'error', code: 'SERVER_ERROR' }); }
-    const nm = (u) => (b.names[u] && b.names[u].name) || 'Jugador', av = (u) => (b.names[u] && b.names[u].avatar) || '', xp = (u) => b.xps[u] || 0;
-    const dayRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), xp: xp(r.uid), playing: !!r.playing, win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid });
-    const weekRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), xp: xp(r.uid), points: r.points, wins: r.wins, played: r.played, moves: r.moves, ms: r.ms, me: r.uid === uid });
+    const nm = (u) => (b.names[u] && b.names[u].name) || 'Jugador', av = (u) => (b.names[u] && b.names[u].avatar) || '', co = (u) => (b.names[u] && b.names[u].country) || '', xp = (u) => b.xps[u] || 0;
+    const dayRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), playing: !!r.playing, win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid });
+    const weekRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), points: r.points, wins: r.wins, played: r.played, moves: r.moves, ms: r.ms, me: r.uid === uid });
     const cut = (list, f) => { const top = list.slice(0, BOARD_TOP).map(f); const mine = list.findIndex((r) => r.uid === uid); return { rows: top, mine: mine >= BOARD_TOP ? f(list[mine]) : null, total: list.length }; };
     send(ws, { t: 'dailyBoard', date: b.today, weekFrom: b.from, today: cut(b.dayRank, dayRow), week: cut(b.weekRank, weekRow) });
   }
@@ -727,7 +787,10 @@ function createPenteServer(config) {
       if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       switch (msg.t) {
         case 'create': lobbyLeave(ws); return onCreate(ws, msg);
-        case 'join': lobbyLeave(ws); return onJoin(ws, msg);
+        case 'join': lobbyLeave(ws); return joinGuarded(ws, msg);
+        case 'hi': return onHi(ws, msg);
+        case 'invite': return onInvite(ws, msg);
+        case 'inviteNo': return onInviteNo(ws, msg);
         case 'rejoin': lobbyLeave(ws); return onRejoin(ws, msg);
         case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
         case 'spectate': lobbyLeave(ws); return onSpectate(ws, msg);
@@ -752,7 +815,7 @@ function createPenteServer(config) {
       }
     });
     ws.on('close', () => {
-      lobbyLeave(ws);
+      lobbyLeave(ws); presenceDel(ws);
       const room = ws.room; if (!room) return;
       if (ws.spectator) { room.spectators.delete(ws); announceSpectators(room); return; }
       const p = room.seats[ws.seat];

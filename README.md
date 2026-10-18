@@ -58,3 +58,9 @@ Usa las mismas 3 variables de arriba, más correr `supabase/password.sql`. Endpo
 
 ## v60
 - `playedDays(uid)`: historial de ~45 días del usuario, enviado como `played` en `daily` info/start para sincronizar la racha entre aparatos.
+
+## v62
+- `opts.bullet` (1 min por jugador, sin tiempo por jugada; `bulletMs` configurable para tests). El servidor sigue aceptando `pairs3`.
+- Invitaciones a amigos: `{t:'hi', jwt}` registra presencia (una cuenta puede tener varias conexiones); el anfitrión crea con `opts.hold:true` (nadie más se puede sentar, error `RESERVED`) y manda `{t:'invite', to, code, jwt, avatar, country}`. Se chequea la amistad en `friendships` (`friendsDb.are`, inyectable en tests). Respuestas: `inviteRes {ok, reason: offline|notfriends|rate|bad|error}`, `inviteDeclined`. Las salas reservadas que esperan no salen en la lista pública.
+- XP que ven los demás en el ranking: mayor entre `xp_v` y `stats.xp.t` (`shownXp`). `country` de cada jugador en las filas del ranking (`prefs.country`).
+- Requiere correr `supabase/v62.sql`.
