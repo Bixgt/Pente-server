@@ -1,8 +1,8 @@
 /* Service worker de Pente: permite jugar sin conexión.
  * Estrategia: red primero (así las actualizaciones llegan apenas hay internet) y caché como respaldo.
  * Para forzar que todos reciban una versión nueva: cambiar CACHE_VERSION. */
-const CACHE_VERSION = 'pente-v7';
-const PRECACHE = ['./', './index.html', './manifest.webmanifest', './config.js', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
+const CACHE_VERSION = 'pente-v64';
+const PRECACHE = ['./', './index.html', './manifest.webmanifest', './config.js', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png', './icons/favicon.svg', './icons/favicon-32.png', './icons/favicon-16.png', './favicon.ico'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE_VERSION).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));

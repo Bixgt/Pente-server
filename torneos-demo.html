@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Pente · Probador de torneos</title>
+<style>
+@font-face { font-family: 'PenteSans'; src: url(data:font/woff2;base64,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) format('woff2'); font-weight: 100 500; font-display: swap; }
+@font-face { font-family: 'PenteSans'; src: url(data:font/woff2;base64,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) format('woff2'); font-weight: 600 900; font-display: swap; }
+:root { --bg: #14151a; --panel: #1d2028; --panel2: #262a34; --line: #323744; --text: #f1f2f6; --muted: #9aa0ae; --accent: #e6b04f; --danger: #e5604f; --ok: #6fcf8e; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: 'PenteSans', system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.4; }
+.wrap { max-width: 980px; margin: 0 auto; padding: 18px 16px 60px; }
+h1 { font-size: 26px; margin: 6px 0 2px; } h2 { font-size: 18px; margin: 0 0 10px; } h3 { font-size: 15px; margin: 14px 0 8px; }
+.sub, .hint { color: var(--muted); font-size: 13px; margin: 2px 0 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin: 14px 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+input, select, textarea, button { font: inherit; color: inherit; }
+input, select, textarea { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+textarea { min-height: 120px; resize: vertical; }
+button { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+button:hover:not(:disabled) { border-color: var(--accent); } button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: #1a1405; border-color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.err { color: var(--danger); margin: 4px 0; } .warn { color: var(--accent); font-size: 13px; margin: 4px 0; } .ok { color: var(--ok); margin: 3px 0; }
+.sug { display: block; width: 100%; text-align: left; margin: 6px 0; }
+.tabs { display: flex; gap: 6px; margin: 10px 0; flex-wrap: wrap; } .tabs button[aria-pressed=true] { background: var(--accent); color: #1a1405; border-color: var(--accent); }
+.round { margin: 10px 0 16px; } .round h3 span { color: var(--muted); font-weight: 400; }
+.duel { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 6px 0; font-size: 14px; }
+.duel.done { opacity: .85; } .duel .p { display: flex; justify-content: space-between; gap: 8px; } .duel .p.w b { color: var(--ok); } .duel .p.l { color: var(--muted); }
+.duel .meta { font-size: 12px; color: var(--muted); margin-top: 4px; } .duel .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; } .duel .acts button { padding: 5px 9px; font-size: 12px; }
+.bracket { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 8px; align-items: stretch; }
+.bracket .col { display: flex; flex-direction: column; justify-content: space-around; min-width: 210px; flex: 1 0 210px; } .bracket .col > h3 { text-align: center; margin: 0 0 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; } th, td { padding: 7px 6px; text-align: right; border-bottom: 1px solid var(--line); } th:nth-child(2), td:nth-child(2) { text-align: left; } th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tr.champ td { color: var(--accent); font-weight: 700; } tr.out td { color: var(--muted); }
+.champion { font-size: 22px; color: var(--accent); margin: 6px 0; }
+.tw { overflow-x: auto; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 99px; background: var(--panel2); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Probador de torneos</h1>
+  <p class="sub">Esto es solo para probar el motor: los resultados se cargan a mano o se simulan. Todavía no está conectado a las partidas online.</p>
+
+  <div class="card" id="cfgCard">
+    <h2>1 · Armá el torneo</h2>
+    <div class="grid">
+      <div><label for="name">Nombre</label><input id="name" maxlength="30" value="Torneo de Pente — Amigos"></div>
+      <div><label for="n">Cantidad de jugadores</label><input id="n" type="number" min="2" max="64" value="8"></div>
+      <div><label for="format">Formato</label><select id="format"></select></div>
+      <div><label for="bestOf">Cada duelo</label><select id="bestOf"><option value="1">Una sola partida</option><option value="3" selected>Mejor de 3</option><option value="5">Mejor de 5</option><option value="7">Mejor de 7</option></select></div>
+      <div><label for="minDuels">Mínimo de duelos por jugador</label><input id="minDuels" type="number" min="1" max="63" value="3"></div>
+      <div id="cutBox"><label for="cut">Pasan a la eliminatoria final</label><select id="cut"><option>2</option><option selected>4</option><option>8</option><option>16</option></select></div>
+    </div>
+    <div class="row"><div style="flex:1 1 260px"><label for="names">Jugadores (uno por línea; el orden es la siembra)</label><textarea id="names"></textarea></div></div>
+    <div class="row"><button id="btnShuffle">Mezclar al azar</button><button id="btnReset">Nombres de ejemplo</button></div>
+    <div id="check"></div>
+    <div class="row"><button class="primary" id="btnCreate">Crear torneo</button></div>
+  </div>
+
+  <div class="card" id="runCard" hidden>
+    <h2 id="tTitle"></h2>
+    <div class="hint" id="tInfo"></div>
+    <div id="champ"></div>
+    <div class="row"><button id="btnNext">Simular próximo duelo</button><button id="btnRound">Simular la ronda</button><button id="btnAll">Simular todo</button>
+      <select id="wd" style="width:auto"></select><button id="btnWd">Retirar jugador</button></div>
+    <div class="tabs" id="tabs"><button data-t="fx" aria-pressed="true">Fixture</button><button data-t="st" aria-pressed="false">Clasificación</button></div>
+    <div id="view"></div>
+  </div>
+</div>
+
+<script>
+/* PENTE · motor de torneos (lógica pura, sin pantalla ni red).
+ *
+ * Estructura:  TORNEO → RONDA → DUELO → PARTIDAS.   Un "duelo" es un enfrentamiento entre dos personas (mejor de 1/3/5/7 partidas).
+ * El motor NO juega Pente: solo arma cruces, recibe quién ganó cada partida y calcula quién sigue / la tabla.
+ * Las partidas reales se juegan con el mismo sistema online de siempre.
+ *
+ * Formatos:
+ *   elim       eliminación directa (el que pierde un duelo, se va). Garantiza 1 duelo por jugador.
+ *   rr         todos contra todos. Garantiza n-1 duelos.
+ *   swiss      sistema suizo: R rondas, cada ronda enfrenta gente con rendimiento parecido y nadie repite rival.
+ *   swiss_cut  suizo + los mejores 2/4/8/16 juegan una eliminatoria final.
+ *
+ * "Mínimo de duelos": se garantiza por construcción (suizo/todos contra todos) y se comprueba ANTES de empezar.
+ * Un descanso ("bye", cuando la cantidad es impar) NO cuenta como duelo: por eso con cantidad impar el suizo juega una ronda extra.
+ *
+ * El estado es un objeto JSON común (se puede guardar y mandar por red). Todas las funciones devuelven estados nuevos.
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.PenteTournament = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  var FORMATS = ['elim', 'rr', 'swiss', 'swiss_cut'];
+  var BEST_OF = [1, 3, 5, 7];
+  var MAX_PLAYERS = 64, NAME_MAX = 20, BYE = '__bye';
+  var FORMAT_NAME = { elim: 'Eliminación directa', rr: 'Todos contra todos', swiss: 'Suizo', swiss_cut: 'Suizo + eliminatoria final' };
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function isPow2(x) { return x >= 1 && (x & (x - 1)) === 0; }
+  function ceilLog2(x) { var k = 0; while ((1 << k) < x) k++; return k; }
+  function floorPow2(x) { var p = 1; while (p * 2 <= x) p *= 2; return p; }
+  function evenUp(n) { return n % 2 ? n + 1 : n; }
+  function cleanName(s, max) { return String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max || NAME_MAX); }
+
+  /* ---------- jugadores ---------- */
+  function normPlayers(list) {
+    var out = [], names = {}, ids = {}, err = '';
+    (Array.isArray(list) ? list : []).forEach(function (p, i) {
+      var o = typeof p === 'string' ? { name: p } : (p || {});
+      var name = cleanName(o.name), id = String(o.id != null ? o.id : 'p' + (i + 1));
+      if (!name) { err = err || 'Hay un jugador sin nombre.'; return; }
+      if (names[name.toLowerCase()]) { err = err || 'El nombre "' + name + '" está repetido.'; return; }
+      if (ids[id] || id === BYE) { err = err || 'Hay ids repetidos.'; return; }
+      names[name.toLowerCase()] = 1; ids[id] = 1; out.push({ id: id, name: name, seed: out.length + 1 });
+    });
+    return { players: out, error: err };
+  }
+
+  /* ---------- configuración ---------- */
+  function normCfg(cfg) {
+    cfg = cfg || {};
+    var pts = cfg.points || {};
+    return {
+      name: cleanName(cfg.name, 40) || 'Torneo de Pente',
+      format: cfg.format, bestOf: Number(cfg.bestOf == null ? 3 : cfg.bestOf), minDuels: Math.floor(Number(cfg.minDuels == null ? 1 : cfg.minDuels)),
+      cut: Math.floor(Number(cfg.cut == null ? 4 : cfg.cut)),
+      points: { win: pts.win == null ? 3 : Number(pts.win), loss: pts.loss == null ? 0 : Number(pts.loss) }
+    };
+  }
+
+  /* Cantidad de rondas del suizo para garantizar `min` duelos. Con cantidad impar, quien descansa pierde un duelo → una ronda de más. */
+  function swissRounds(n, min) { return min + (n % 2 ? 1 : 0); }
+  /* El suizo sin repetir rival siempre se puede armar mientras R <= m/2 (m = cantidad par ≥ n): un grafo regular de grado ≥ m/2 tiene emparejamiento perfecto (Dirac). */
+  function swissFeasible(n, R) { return n >= 2 && R >= 1 && R <= evenUp(n) / 2; }
+  function swissMaxMin(n) { return Math.max(0, evenUp(n) / 2 - (n % 2 ? 1 : 0)); }
+
+  function roundName(r, K) {
+    var left = K - r;                                   // rondas que faltan después de esta
+    return left === 0 ? 'Final' : left === 1 ? 'Semifinal' : left === 2 ? 'Cuartos de final' : left === 3 ? 'Octavos de final' : left === 4 ? 'Dieciseisavos de final' : 'Ronda ' + r;
+  }
+
+  /* Plan matemático del torneo: cuántas rondas, cuántos duelos y cuántos le tocan como mínimo / máximo a cada jugador. */
+  function planOf(n, c) {
+    var f = c.format, R, K;
+    if (f === 'elim') { K = ceilLog2(n); return { rounds: K, duels: n - 1, min: 1, max: K }; }
+    if (f === 'rr') { var m = evenUp(n); return { rounds: m - 1, duels: n * (n - 1) / 2, min: n - 1, max: n - 1 }; }
+    R = swissRounds(n, c.minDuels);
+    var sw = { rounds: R, duels: R * Math.floor(n / 2), min: n % 2 ? R - 1 : R, max: R };
+    if (f === 'swiss') return sw;
+    K = ceilLog2(c.cut);
+    return { rounds: R + K, duels: sw.duels + c.cut - 1, min: sw.min, max: R + K, swissRounds: R, cutRounds: K };
+  }
+
+  function check(cfg, players) {
+    var c = normCfg(cfg), errors = [], warnings = [];
+    var n = Array.isArray(players) ? players.length : Math.floor(Number(players));
+    function err(code, msg) { errors.push({ code: code, msg: msg }); }
+    if (FORMATS.indexOf(c.format) < 0) err('format', 'Elegí un formato de torneo.');
+    if (!(n >= 2)) err('players', 'Hacen falta al menos 2 jugadores.');
+    else if (n > MAX_PLAYERS) err('players', 'El máximo es ' + MAX_PLAYERS + ' jugadores.');
+    if (BEST_OF.indexOf(c.bestOf) < 0) err('bestOf', 'Cada duelo puede ser al mejor de 1, 3, 5 o 7 partidas.');
+    if (!(c.minDuels >= 1)) err('minDuels', 'El mínimo de duelos tiene que ser 1 o más.');
+    if (c.points.win < c.points.loss) err('points', 'La victoria no puede dar menos puntos que la derrota.');
+    if (errors.length) return { ok: false, errors: errors, warnings: warnings, plan: null, cfg: c, n: n };
+
+    if (c.minDuels > n - 1) err('minDuels', 'Con ' + n + ' jugadores nadie puede enfrentar a más de ' + (n - 1) + ' rivales distintos: el mínimo no puede ser ' + c.minDuels + '.');
+    else if (c.format === 'elim' && c.minDuels > 1) err('minDuels', 'La eliminación directa solo garantiza 1 duelo: quien pierde la primera vez queda afuera.');
+    else if (c.format === 'rr' && c.minDuels > n - 1) err('minDuels', 'Todos contra todos da ' + (n - 1) + ' duelos a cada jugador.');
+    else if ((c.format === 'swiss' || c.format === 'swiss_cut') && !swissFeasible(n, swissRounds(n, c.minDuels))) {
+      err('minDuels', 'Con ' + n + ' jugadores el suizo garantiza como máximo ' + swissMaxMin(n) + ' duelo' + (swissMaxMin(n) === 1 ? '' : 's') + ' (para más conviene todos contra todos).');
+    }
+    if (c.format === 'swiss_cut') {
+      if (!isPow2(c.cut) || c.cut < 2) err('cut', 'Los que pasan a la eliminatoria tienen que ser 2, 4, 8 o 16.');
+      else if (c.cut >= n) err('cut', 'Tienen que pasar menos jugadores que los que participan (' + n + ').');
+    }
+    if (errors.length) return { ok: false, errors: errors, warnings: warnings, plan: null, cfg: c, n: n };
+
+    var plan = planOf(n, c);
+    if ((c.format === 'swiss' || c.format === 'swiss_cut') && plan.rounds && (c.format === 'swiss' ? plan.rounds : plan.swissRounds) < ceilLog2(n)) {
+      warnings.push('Con tan pocas rondas puede no quedar un campeón claro; se desempata por victorias, diferencia de partidas y resultado entre empatados.');
+    }
+    if (n % 2 && c.format !== 'elim') warnings.push('Con cantidad impar, en cada ronda alguien descansa. El descanso da los puntos de una victoria pero no cuenta como duelo.');
+    if (c.format === 'elim' && !isPow2(n)) warnings.push('Con ' + n + ' jugadores los mejores sembrados empiezan con descanso en la primera ronda.');
+    return { ok: true, errors: [], warnings: warnings, plan: plan, cfg: c, n: n };
+  }
+
+  /* Alternativas válidas cuando la configuración pedida no se puede cumplir. */
+  function suggest(cfg, players) {
+    var c = normCfg(cfg), n = Array.isArray(players) ? players.length : Math.floor(Number(players)), out = [];
+    if (!(n >= 2)) return out;
+    function add(label, over) {
+      var cand = Object.assign({}, c, over);
+      var v = check(cand, n);
+      if (v.ok && !out.some(function (o) { return JSON.stringify(o.cfg) === JSON.stringify(v.cfg); })) out.push({ label: label, cfg: v.cfg, plan: v.plan });
+    }
+    var want = Math.max(1, c.minDuels), cutDef = Math.max(2, Math.min(floorPow2(Math.max(2, Math.floor(n / 2))), 8));
+    if (want <= n - 1) add('Todos contra todos (cada uno juega ' + (n - 1) + ' duelos)', { format: 'rr', minDuels: Math.min(want, n - 1) });
+    add('Suizo con ' + want + ' duelos garantizados', { format: 'swiss', minDuels: want });
+    add('Suizo (' + want + ' duelos) y eliminatoria final con los mejores ' + cutDef, { format: 'swiss_cut', minDuels: want, cut: cutDef });
+    var mx = swissMaxMin(n);
+    if (mx >= 1 && mx < want) {
+      add('Suizo con ' + mx + ' duelos (el máximo posible)', { format: 'swiss', minDuels: mx });
+      add('Suizo (' + mx + ' duelos) y eliminatoria final', { format: 'swiss_cut', minDuels: mx, cut: cutDef });
+    }
+    if (want > 1) add('Eliminación directa (1 duelo garantizado)', { format: 'elim', minDuels: 1 });
+    return out.slice(0, 4);
+  }
+
+  function validate(cfg, players) {
+    var v = check(cfg, players);
+    v.suggestions = v.ok ? [] : suggest(cfg, players);
+    return v;
+  }
+
+  /* Texto para la pantalla de confirmación ("vista previa"). */
+  function preview(cfg, players) {
+    var v = validate(cfg, players);
+    if (!v.ok) return { ok: false, title: v.cfg.name, lines: [], promises: [], errors: v.errors, suggestions: v.suggestions };
+    var c = v.cfg, p = v.plan, need = (c.bestOf + 1) / 2, lines = [], promises = [];
+    lines.push('Jugadores: ' + v.n);
+    lines.push('Formato: ' + FORMAT_NAME[c.format] + (c.format === 'swiss' ? ' (' + p.rounds + ' rondas)' : c.format === 'swiss_cut' ? ' (' + p.swissRounds + ' rondas + top ' + c.cut + ')' : ''));
+    lines.push('Duelo: ' + (c.bestOf === 1 ? 'una sola partida' : 'mejor de ' + c.bestOf + ' (gana quien llegue a ' + need + ' partidas)'));
+    lines.push('Puntos: ' + c.points.win + ' por duelo ganado, ' + c.points.loss + ' por perdido');
+    lines.push('En total: ' + p.duels + ' duelos en ' + p.rounds + ' rondas');
+    promises.push('Todos jugarán al menos ' + p.min + ' duelo' + (p.min === 1 ? '' : 's') + '.');
+    if (c.format === 'elim') promises.push('Quien pierda un duelo queda eliminado.');
+    promises.push('Un duelo es un enfrentamiento entre dos personas; puede tener varias partidas. Perder 0-3 cuenta como 1 duelo, no como 3.');
+    promises.push('Quien empieza la primera partida de cada duelo se alterna para que nadie tenga siempre la ventaja de mover primero.');
+    return { ok: true, title: c.name, lines: lines, promises: promises, warnings: v.warnings, plan: p };
+  }
+
+  /* ---------- armado de rondas ---------- */
+  function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  /* Mezcla reproducible: la misma semilla da siempre el mismo orden (sirve para sembrar al azar y poder auditarlo). */
+  function shuffle(list, seed) {
+    var a = list.slice(), rnd = mulberry32(Math.floor(Number(seed)) || 1);
+    for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+
+  function newDuel(S, round, idx, a, b) {
+    return { id: S.phasePrefix + round + '-' + (idx + 1), a: a, b: b, bye: false, bestOf: S.cfg.bestOf, games: [], score: { a: 0, b: 0 }, winner: null, walkover: false, status: 'pending', opens: (S.duelSeq++ % 2) ? 'b' : 'a' };
+  }
+  function makeBye(S, round, idx, p) { var d = newDuel(S, round, idx, p, null); d.bye = true; d.status = 'done'; d.winner = p; return d; }
+
+  /* Emparejamiento sin repetir rival: busca el primero (en orden de ranking) que complete a todos. Siempre existe mientras R <= m/2. */
+  function matchDFS(list, played) {
+    var used = {}, out = [], steps = 0;
+    function go() {
+      if (++steps > 400000) return false;
+      var i = 0; while (i < list.length && used[list[i]]) i++;
+      if (i === list.length) return true;
+      var p = list[i]; used[p] = 1;
+      for (var j = i + 1; j < list.length; j++) {
+        var q = list[j];
+        if (used[q] || (played[p] && played[p][q])) continue;
+        used[q] = 1; out.push([p, q]);
+        if (go()) return true;
+        out.pop(); used[q] = 0;
+      }
+      used[p] = 0; return false;
+    }
+    return go() ? out : null;
+  }
+  function playedMap(S) {
+    var m = {};
+    S.rounds.forEach(function (r) { if (r.phase !== 'swiss') return; r.duels.forEach(function (d) {
+      var b = d.b == null ? BYE : d.b; (m[d.a] = m[d.a] || {})[b] = 1; (m[b] = m[b] || {})[d.a] = 1;
+    }); });
+    return m;
+  }
+  function swissRound(S) {
+    var r = S.rounds.length + 1, n = S.players.length, order, pairs;
+    var swissDone = S.rounds.filter(function (x) { return x.phase === 'swiss'; }).length;
+    var rno = swissDone + 1;
+    if (rno === 1) {
+      order = S.players.map(function (p) { return p.id; });
+      var bye1 = n % 2 ? order.pop() : null, half = order.length / 2;
+      pairs = []; for (var i = 0; i < half; i++) pairs.push([order[i], order[i + half]]);
+      if (bye1) pairs.push([bye1, BYE]);
+    } else {
+      var tbl = standings(S, { phase: 'swiss' });
+      order = tbl.map(function (x) { return x.id; });
+      if (n % 2) order.push(BYE);
+      pairs = matchDFS(order, playedMap(S));
+      if (!pairs) throw new Error('No se pudo armar la ronda ' + rno + ' sin repetir rivales.');
+    }
+    var duels = [], idx = 0;
+    pairs.forEach(function (pr) {
+      if (pr[1] === BYE) duels.push(makeBye(S, r, idx++, pr[0]));
+      else if (pr[0] === BYE) duels.push(makeBye(S, r, idx++, pr[1]));
+      else duels.push(newDuel(S, r, idx++, pr[0], pr[1]));
+    });
+    S.phasePrefix = 'S'; duels.forEach(function (d, i) { d.id = 'S' + rno + '-' + (i + 1); });
+    S.rounds.push({ n: r, phase: 'swiss', name: 'Ronda ' + rno, duels: duels });
+  }
+
+  function rrRounds(S) {
+    var ids = S.players.map(function (p) { return p.id; });
+    if (ids.length % 2) ids.push(BYE);
+    var m = ids.length, arr = ids.slice();
+    for (var r = 0; r < m - 1; r++) {
+      var duels = [], idx = 0;
+      for (var i = 0; i < m / 2; i++) {
+        var a = arr[i], b = arr[m - 1 - i];
+        var d;
+        if (a === BYE || b === BYE) { d = makeBye(S, r + 1, idx++, a === BYE ? b : a); d.rest = true; }
+        else { d = (r + i) % 2 ? newDuel(S, r + 1, idx++, b, a) : newDuel(S, r + 1, idx++, a, b); }
+        d.id = 'R' + (r + 1) + '-' + (idx);
+        duels.push(d);
+      }
+      S.rounds.push({ n: r + 1, phase: 'rr', name: 'Fecha ' + (r + 1), duels: duels });
+      arr.splice(1, 0, arr.pop());                       // método del círculo: el primero queda fijo, el resto rota
+    }
+  }
+
+  function bracketSeeds(m) { var s = [1, 2]; while (s.length < m) { var next = [], len = s.length * 2; s.forEach(function (x) { next.push(x); next.push(len + 1 - x); }); s = next; } return s.slice(0, m); }
+  /* Arma el cuadro completo de eliminación para `ids` (ya ordenados por siembra). Los duelos de rondas posteriores se llenan a medida que hay ganadores. */
+  function buildElim(S, ids) {
+    var n = ids.length, m = 1; while (m < n) m *= 2;
+    var K = ceilLog2(m), base = S.rounds.length, seeds = bracketSeeds(m), cur = [], rounds = [];
+    function id(seed) { return seed <= n ? ids[seed - 1] : null; }
+    var first = [];
+    for (var i = 0; i < m / 2; i++) {
+      var a = id(seeds[2 * i]), b = id(seeds[2 * i + 1]), d;
+      if (a && b) d = newDuel(S, base + 1, i, a, b);
+      else d = makeBye(S, base + 1, i, a || b);
+      d.id = 'E1-' + (i + 1); first.push(d);
+    }
+    rounds.push(first); cur = first;
+    for (var r = 2; r <= K; r++) {
+      var next = [];
+      for (var j = 0; j < cur.length / 2; j++) {
+        var nd = newDuel(S, base + r, j, null, null); nd.id = 'E' + r + '-' + (j + 1); next.push(nd);
+        cur[2 * j].next = { id: nd.id, slot: 'a' }; cur[2 * j + 1].next = { id: nd.id, slot: 'b' };
+      }
+      rounds.push(next); cur = next;
+    }
+    rounds.forEach(function (ds, k) { S.rounds.push({ n: base + k + 1, phase: 'elim', name: roundName(k + 1, K), duels: ds }); });
+    // los descansos de la primera ronda ya tienen ganador: se acomodan en la ronda siguiente
+    first.forEach(function (d) { if (d.status === 'done') place(S, d); });
+  }
+
+  function findDuel(S, id) {
+    for (var i = 0; i < S.rounds.length; i++) for (var j = 0; j < S.rounds[i].duels.length; j++) if (S.rounds[i].duels[j].id === id) return S.rounds[i].duels[j];
+    return null;
+  }
+  function place(S, d) {                                  // pasa el ganador de un duelo de eliminación al siguiente cruce
+    if (!d.next || !d.winner) return;
+    var nx = findDuel(S, d.next.id); nx[d.next.slot] = d.winner;
+  }
+
+  /* ---------- creación ---------- */
+  function create(cfg, playersIn) {
+    var np = normPlayers(playersIn);
+    if (np.error) throw new Error(np.error);
+    var v = validate(cfg, np.players);
+    if (!v.ok) { var e = new Error(v.errors[0].msg); e.validation = v; throw e; }
+    var S = { v: 1, cfg: v.cfg, plan: v.plan, players: np.players, rounds: [], status: 'running', phase: v.cfg.format === 'elim' ? 'elim' : v.cfg.format === 'rr' ? 'rr' : 'swiss', champion: null, withdrawn: [], duelSeq: 0, phasePrefix: 'S', log: [] };
+    if (v.cfg.format === 'rr') rrRounds(S);
+    else if (v.cfg.format === 'elim') buildElim(S, S.players.map(function (p) { return p.id; }));
+    else swissRound(S);
+    autoWalkover(S); advance(S);
+    return S;
+  }
+
+  /* ---------- resultados ---------- */
+  function need(S) { return (S.cfg.bestOf + 1) / 2; }
+  function finishDuel(S, d, winner, walkover) {
+    d.winner = winner; d.status = 'done'; d.walkover = !!walkover;
+    if (S.phase === 'elim' || d.id.charAt(0) === 'E') place(S, d);
+  }
+  /* games: lista con el id de quien ganó cada partida, en orden. Se puede ir cargando de a una (el duelo queda "en juego"). */
+  function recordGames(state, duelId, games) {
+    var S = clone(state);
+    if (S.status !== 'running') throw new Error('El torneo no está en curso.');
+    var d = findDuel(S, duelId);
+    if (!d) throw new Error('No existe ese duelo.');
+    if (d.bye) throw new Error('Ese cruce es un descanso.');
+    if (d.status === 'done') throw new Error('Ese duelo ya terminó.');
+    if (!d.a || !d.b) throw new Error('Ese duelo todavía no tiene los dos jugadores.');
+    var n = need(S), sa = 0, sb = 0, list = [];
+    (games || []).forEach(function (w) {
+      if (sa >= n || sb >= n) throw new Error('Sobran partidas: el duelo ya estaba definido.');
+      if (w !== d.a && w !== d.b) throw new Error('El ganador de una partida tiene que ser uno de los dos jugadores del duelo.');
+      if (w === d.a) sa++; else sb++;
+      list.push(w);
+    });
+    d.games = list; d.score = { a: sa, b: sb }; d.status = list.length ? 'playing' : 'pending';
+    if (sa >= n || sb >= n) finishDuel(S, d, sa >= n ? d.a : d.b, false);
+    logGames(S, duelId, list);
+    autoWalkover(S); advance(S);
+    return S;
+  }
+  /* Cada acción queda en un registro: sirve para deshacer (se rearma el torneo repitiendo todo menos lo último). */
+  function logGames(S, id, list) {
+    var l = S.log[S.log.length - 1];
+    if (l && l.t === 'games' && l.id === id) { if (list.length) l.games = list.slice(); else S.log.pop(); }
+    else if (list.length) S.log.push({ t: 'games', id: id, games: list.slice() });
+  }
+
+  /* El organizador resuelve un duelo a mano (abandono, problema técnico…). Queda marcado como walkover. */
+  function forfeit(state, duelId, winnerId) {
+    var S = clone(state), d = findDuel(S, duelId);
+    if (!d || d.bye || d.status === 'done' || !d.a || !d.b) throw new Error('Ese duelo no se puede resolver así.');
+    if (winnerId !== d.a && winnerId !== d.b) throw new Error('El ganador tiene que ser uno de los dos jugadores.');
+    finishDuel(S, d, winnerId, true); S.log.push({ t: 'forfeit', id: duelId, winner: winnerId });
+    autoWalkover(S); advance(S);
+    return S;
+  }
+
+  /* Un jugador se retira: pierde por walkover todos sus duelos pendientes (los presentes y los que lleguen). */
+  function withdraw(state, playerId) {
+    var S = clone(state);
+    if (!S.players.some(function (p) { return p.id === playerId; })) throw new Error('Ese jugador no está en el torneo.');
+    if (S.withdrawn.indexOf(playerId) < 0) { S.withdrawn.push(playerId); S.log.push({ t: 'withdraw', id: playerId }); }
+    autoWalkover(S); advance(S);
+    return S;
+  }
+  /* Rearma el torneo desde cero repitiendo el registro. */
+  function replay(state, log) {
+    var S = create(state.cfg, state.players);
+    log.forEach(function (e) {
+      if (e.t === 'games') S = recordGames(S, e.id, e.games);
+      else if (e.t === 'forfeit') S = forfeit(S, e.id, e.winner);
+      else if (e.t === 'withdraw') S = withdraw(S, e.id);
+    });
+    if (state.meta) S.meta = state.meta;
+    return S;
+  }
+  /* Deshace lo último: la última partida cargada, el último resultado resuelto a mano o el último retiro. */
+  function undo(state) {
+    var log = (state.log || []).slice(); if (!log.length) return state;
+    var last = log.pop();
+    if (last.t === 'games' && last.games.length > 1) log.push({ t: 'games', id: last.id, games: last.games.slice(0, -1) });
+    return replay(state, log);
+  }
+  function autoWalkover(S) {
+    var changed = true;
+    while (changed) {
+      changed = false;
+      S.rounds.forEach(function (r) { r.duels.forEach(function (d) {
+        if (d.status === 'done' || d.bye || !d.a || !d.b) return;
+        var wa = S.withdrawn.indexOf(d.a) >= 0, wb = S.withdrawn.indexOf(d.b) >= 0;
+        if (!wa && !wb) return;
+        var win = wa && wb ? (seedOf(S, d.a) < seedOf(S, d.b) ? d.a : d.b) : (wa ? d.b : d.a);
+        finishDuel(S, d, win, true); changed = true;
+      }); });
+    }
+  }
+  function seedOf(S, id) { for (var i = 0; i < S.players.length; i++) if (S.players[i].id === id) return S.players[i].seed; return 999; }
+
+  function roundsDone(S, phase) { return S.rounds.filter(function (r) { return r.phase === phase; }); }
+  function allDone(r) { return r.duels.every(function (d) { return d.status === 'done'; }); }
+
+  /* Avanza el torneo: siguiente ronda de suizo, paso a la eliminatoria final o cierre con campeón. */
+  function advance(S) {
+    var guard = 0;
+    while (S.status === 'running' && guard++ < 200) {
+      var f = S.cfg.format, last = S.rounds[S.rounds.length - 1];
+      if (f === 'rr') {
+        if (S.rounds.every(allDone)) { finish(S); }
+        return;
+      }
+      if (f === 'elim') {
+        if (S.rounds.every(allDone)) finish(S);
+        return;
+      }
+      // suizo / suizo + corte
+      if (S.phase === 'swiss') {
+        if (!allDone(last)) return;
+        var played = roundsDone(S, 'swiss').length, R = S.plan.swissRounds || S.plan.rounds;
+        if (played < R) { swissRound(S); autoWalkover(S); continue; }
+        if (f === 'swiss') { finish(S); return; }
+        var tbl = standings(S, { phase: 'swiss' }).filter(function (x) { return S.withdrawn.indexOf(x.id) < 0; });
+        var cut = Math.min(S.cfg.cut, floorPow2(tbl.length));
+        if (cut < 2) { finish(S); return; }
+        S.phase = 'elim'; S.phasePrefix = 'E';
+        buildElim(S, tbl.slice(0, cut).map(function (x) { return x.id; }));
+        autoWalkover(S); continue;
+      }
+      if (S.rounds.every(allDone)) finish(S);
+      return;
+    }
+  }
+  function finish(S) {
+    S.status = 'finished';
+    var r = ranking(S);
+    S.champion = r.length ? r[0].id : null;
+  }
+
+  /* ---------- clasificación ---------- */
+  function emptyRow(p) { return { id: p.id, name: p.name, seed: p.seed, duels: 0, dw: 0, dl: 0, gw: 0, gl: 0, diff: 0, pts: 0, byes: 0 }; }
+  /* Tabla con desempates fijos y sin ambigüedad:
+   *   1) puntos  2) duelos ganados  3) diferencia de partidas  4) partidas ganadas
+   *   5) resultado entre los empatados (duelos ganados solo entre ellos)  6) orden de siembra. */
+  function standings(state, opts) {
+    var S = state, phase = (opts && opts.phase) || (S.cfg.format === 'elim' ? 'elim' : S.cfg.format === 'rr' ? 'rr' : 'swiss');
+    var rows = {}, h2h = {};
+    S.players.forEach(function (p) { rows[p.id] = emptyRow(p); });
+    S.rounds.forEach(function (r) { if (r.phase !== phase) return; r.duels.forEach(function (d) {
+      if (d.status !== 'done') return;
+      if (d.bye) { if (d.rest) return; var rb = rows[d.a]; rb.byes++; if (phase === 'swiss') rb.pts += S.cfg.points.win; return; }
+      var A = rows[d.a], B = rows[d.b], win = d.winner === d.a ? A : B, lose = win === A ? B : A;
+      A.duels++; B.duels++; win.dw++; lose.dl++; win.pts += S.cfg.points.win; lose.pts += S.cfg.points.loss;
+      if (!d.walkover) { A.gw += d.score.a; A.gl += d.score.b; B.gw += d.score.b; B.gl += d.score.a; }
+      (h2h[win.id] = h2h[win.id] || {})[lose.id] = (h2h[win.id][lose.id] || 0) + 1;
+    }); });
+    var list = Object.keys(rows).map(function (k) { var r = rows[k]; r.diff = r.gw - r.gl; return r; });
+    function key(r) { return [r.pts, r.dw, r.diff, r.gw]; }
+    function cmpKey(a, b) { var ka = key(a), kb = key(b); for (var i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return kb[i] - ka[i]; return 0; }
+    list.sort(function (a, b) { return cmpKey(a, b) || a.seed - b.seed; });
+    // resultado entre empatados (mini-liga dentro de cada grupo empatado)
+    var out = [], i = 0;
+    while (i < list.length) {
+      var j = i; while (j + 1 < list.length && cmpKey(list[j + 1], list[i]) === 0) j++;
+      var grp = list.slice(i, j + 1);
+      if (grp.length > 1) {
+        var ids = {}; grp.forEach(function (g) { ids[g.id] = 1; });
+        grp.forEach(function (g) { g.h2h = 0; Object.keys(h2h[g.id] || {}).forEach(function (o) { if (ids[o]) g.h2h += h2h[g.id][o]; }); });
+        grp.sort(function (a, b) { return b.h2h - a.h2h || a.seed - b.seed; });
+      }
+      out = out.concat(grp); i = j + 1;
+    }
+    out.forEach(function (r, k) { r.pos = k + 1; });
+    return out;
+  }
+
+  /* Posición final de todos. Con eliminatoria manda hasta dónde llegó cada uno; el resto va por la tabla previa. */
+  function ranking(state) {
+    var S = state, f = S.cfg.format;
+    var base = f === 'elim' ? S.players.map(emptyRow) : standings(S, { phase: f === 'rr' ? 'rr' : 'swiss' });
+    if (f === 'elim' || f === 'swiss_cut') {
+      var elimRounds = S.rounds.filter(function (r) { return r.phase === 'elim'; }), K = elimRounds.length, reach = {}, inElim = {};
+      elimRounds.forEach(function (r, k) { r.duels.forEach(function (d) {
+        [d.a, d.b].forEach(function (p) { if (p) { inElim[p] = 1; reach[p] = Math.max(reach[p] || 0, k + 1); } });
+        if (d.status === 'done' && d.winner && !d.bye) reach[d.winner] = Math.max(reach[d.winner] || 0, k + 2);
+        if (d.bye && d.winner) reach[d.winner] = Math.max(reach[d.winner] || 0, k + 2);
+      }); });
+      var seedPos = {}; base.forEach(function (r, i) { seedPos[r.id] = i; });
+      if (f === 'elim') base.forEach(function (r, i) { seedPos[r.id] = r.seed; });
+      var withElim = base.filter(function (r) { return inElim[r.id]; }), rest = base.filter(function (r) { return !inElim[r.id]; });
+      withElim.sort(function (a, b) { return (reach[b.id] || 0) - (reach[a.id] || 0) || seedPos[a.id] - seedPos[b.id]; });
+      base = withElim.concat(rest);
+    }
+    return base.map(function (r, i) { var o = Object.assign({}, r); o.pos = i + 1; return o; });
+  }
+
+  /* Quién abre la partida número k (0, 1, 2…) de un duelo: se alterna. */
+  function opener(duel, k) { var first = duel.opens === 'b' ? duel.b : duel.a, second = first === duel.a ? duel.b : duel.a; return k % 2 === 0 ? first : second; }
+  /* Próximos duelos que se pueden jugar ya (los dos jugadores definidos y sin terminar). */
+  function pending(state) { var out = []; state.rounds.forEach(function (r) { r.duels.forEach(function (d) { if (d.status !== 'done' && !d.bye && d.a && d.b) out.push({ round: r.name, duel: d }); }); }); return out; }
+  function nameOf(state, id) { for (var i = 0; i < state.players.length; i++) if (state.players[i].id === id) return state.players[i].name; return id == null ? '' : String(id); }
+
+  return {
+    FORMATS: FORMATS, BEST_OF: BEST_OF, MAX_PLAYERS: MAX_PLAYERS, FORMAT_NAME: FORMAT_NAME,
+    validate: validate, preview: preview, create: create, recordGames: recordGames, forfeit: forfeit, withdraw: withdraw, undo: undo,
+    standings: standings, ranking: ranking, pending: pending, opener: opener, nameOf: nameOf, shuffle: shuffle,
+    swissMaxMin: swissMaxMin
+  };
+});
+
+</script>
+<script>
+(function () {
+  'use strict';
+  var T = window.PenteTournament, $ = function (id) { return document.getElementById(id); };
+  var S = null, tab = 'fx', games = {}, rnd = Math.random;
+  function sample(n) { var a = ['Tobi', 'Ro', 'Cami', 'Juan', 'Lu', 'Mati', 'Sofi', 'Nico', 'Vale', 'Fede', 'Ana', 'Beto', 'Dani', 'Eli', 'Gus', 'Hugo', 'Ine', 'Jose', 'Kari', 'Leo', 'Mica', 'Nata', 'Omar', 'Pau', 'Rita', 'Santi', 'Tere', 'Uma', 'Vico', 'Walter', 'Xime', 'Yami']; var o = []; for (var i = 0; i < n; i++) o.push(i < a.length ? a[i] : 'Jugador ' + (i + 1)); return o; }
+  var fmt = $('format'); T.FORMATS.forEach(function (f) { var o = document.createElement('option'); o.value = f; o.textContent = T.FORMAT_NAME[f]; fmt.appendChild(o); }); fmt.value = 'swiss_cut';
+  $('names').value = sample(8).join('\n');
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function players() { return $('names').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean); }
+  function cfg() { return { name: $('name').value, format: fmt.value, bestOf: +$('bestOf').value, minDuels: +$('minDuels').value, cut: +$('cut').value }; }
+  function setCfg(c) { fmt.value = c.format; $('bestOf').value = c.bestOf; $('minDuels').value = c.minDuels; $('cut').value = c.cut; renderCheck(); }
+
+  $('n').addEventListener('input', function () { var n = Math.max(2, Math.min(64, +$('n').value || 2)), cur = players(); var all = sample(n); $('names').value = cur.slice(0, n).concat(all.slice(cur.length, n)).join('\n'); renderCheck(); });
+  ['name', 'format', 'bestOf', 'minDuels', 'cut', 'names'].forEach(function (id) { $(id).addEventListener('input', function () { if (id === 'names') $('n').value = players().length; renderCheck(); }); });
+  $('btnShuffle').addEventListener('click', function () { $('names').value = T.shuffle(players(), Date.now() % 100000).join('\n'); renderCheck(); });
+  $('btnReset').addEventListener('click', function () { $('names').value = sample(+$('n').value || 8).join('\n'); renderCheck(); });
+
+  function renderCheck() {
+    $('cutBox').hidden = fmt.value !== 'swiss_cut';
+    var pl = players(), box = $('check'); box.innerHTML = '';
+    var p = T.preview(cfg(), pl);
+    var dupe = pl.length !== new Set(pl.map(function (x) { return x.toLowerCase(); })).size;
+    if (dupe) { box.innerHTML = '<div class="err">Hay nombres repetidos.</div>'; $('btnCreate').disabled = true; return; }
+    if (!p.ok) {
+      p.errors.forEach(function (e) { var d = document.createElement('div'); d.className = 'err'; d.textContent = '✗ ' + e.msg; box.appendChild(d); });
+      if (p.suggestions.length) { var h = document.createElement('div'); h.className = 'hint'; h.textContent = 'Opciones que sí se pueden cumplir:'; box.appendChild(h); }
+      p.suggestions.forEach(function (s) { var b = document.createElement('button'); b.className = 'sug'; b.textContent = '→ ' + s.label; b.addEventListener('click', function () { setCfg(s.cfg); }); box.appendChild(b); });
+      $('btnCreate').disabled = true; return;
+    }
+    var h2 = document.createElement('h3'); h2.textContent = 'Vista previa'; box.appendChild(h2);
+    p.lines.forEach(function (l) { var d = document.createElement('div'); d.textContent = l; box.appendChild(d); });
+    var g = document.createElement('h3'); g.textContent = 'El sistema garantiza'; box.appendChild(g);
+    p.promises.forEach(function (l) { var d = document.createElement('div'); d.className = 'ok'; d.textContent = '✓ ' + l; box.appendChild(d); });
+    (p.warnings || []).forEach(function (l) { var d = document.createElement('div'); d.className = 'warn'; d.textContent = '! ' + l; box.appendChild(d); });
+    $('btnCreate').disabled = false;
+  }
+
+  $('btnCreate').addEventListener('click', function () {
+    try { S = T.create(cfg(), players()); } catch (e) { alert(e.message); return; }
+    games = {}; tab = 'fx'; $('runCard').hidden = false; render(); $('runCard').scrollIntoView({ behavior: 'smooth' });
+  });
+
+  function nm(id) { return id ? esc(T.nameOf(S, id)) : '<span class="hint">por definir</span>'; }
+  function duelHtml(d) {
+    var need = (S.cfg.bestOf + 1) / 2;
+    if (d.bye) return '<div class="duel done"><div class="p w"><b>' + nm(d.a) + '</b><span>descansa</span></div></div>';
+    var cls = d.status === 'done' ? 'done' : '', wA = d.winner === d.a, wB = d.winner === d.b;
+    var html = '<div class="duel ' + cls + '" data-id="' + d.id + '">' +
+      '<div class="p ' + (d.status === 'done' ? (wA ? 'w' : 'l') : '') + '"><span>' + (wA ? '<b>' + nm(d.a) + '</b>' : nm(d.a)) + '</span><span>' + (d.a ? d.score.a : '') + '</span></div>' +
+      '<div class="p ' + (d.status === 'done' ? (wB ? 'w' : 'l') : '') + '"><span>' + (wB ? '<b>' + nm(d.b) + '</b>' : nm(d.b)) + '</span><span>' + (d.b ? d.score.b : '') + '</span></div>';
+    if (d.status === 'done') html += '<div class="meta">' + (d.walkover ? 'Ganó por retiro / decisión del organizador' : 'Mejor de ' + S.cfg.bestOf + ' · ' + d.games.length + ' partida' + (d.games.length === 1 ? '' : 's')) + '</div>';
+    else if (d.a && d.b) {
+      html += '<div class="meta">Mejor de ' + S.cfg.bestOf + ' (gana quien llegue a ' + need + ') · abre la partida ' + (d.games.length + 1) + ': ' + esc(T.nameOf(S, T.opener(d, d.games.length))) + '</div>' +
+        '<div class="acts"><button data-act="a">Partida: gana ' + esc(T.nameOf(S, d.a)) + '</button><button data-act="b">Partida: gana ' + esc(T.nameOf(S, d.b)) + '</button><button data-act="sim">Simular duelo</button></div>';
+    }
+    return html + '</div>';
+  }
+  function fixtureHtml() {
+    var html = '', sw = S.rounds.filter(function (r) { return r.phase !== 'elim'; }), el = S.rounds.filter(function (r) { return r.phase === 'elim'; });
+    sw.forEach(function (r) { html += '<div class="round"><h3>' + esc(r.name) + ' <span>· ' + r.duels.filter(function (d) { return d.status === 'done'; }).length + '/' + r.duels.length + '</span></h3>' + r.duels.map(duelHtml).join('') + '</div>'; });
+    if (el.length) {
+      html += '<h3>Eliminatoria</h3><div class="bracket">' + el.map(function (r) { return '<div class="col"><h3>' + esc(r.name) + '</h3>' + r.duels.map(duelHtml).join('') + '</div>'; }).join('') + '</div>';
+    }
+    if (S.cfg.format === 'swiss_cut' && S.phase === 'swiss') html += '<p class="hint">La eliminatoria final se arma cuando terminen todas las rondas.</p>';
+    return html;
+  }
+  function tableHtml() {
+    var rk = T.ranking(S), isCut = S.cfg.format === 'swiss_cut' || S.cfg.format === 'elim';
+    var base = T.standings(S, { phase: S.cfg.format === 'elim' ? 'elim' : S.cfg.format === 'rr' ? 'rr' : 'swiss' });
+    var rows = (S.cfg.format === 'elim' ? rk : base);
+    var html = '<div class="tw"><table><tr><th>#</th><th>Jugador</th><th>Duelos</th><th>Gan.</th><th>Perd.</th><th>Part. +</th><th>Part. −</th><th>Dif.</th><th>Pts</th></tr>';
+    rows.forEach(function (r) {
+      var wd = S.withdrawn.indexOf(r.id) >= 0;
+      html += '<tr class="' + (S.champion === r.id ? 'champ' : wd ? 'out' : '') + '"><td>' + r.pos + '</td><td>' + esc(r.name) + (wd ? ' <span class="badge">retirado</span>' : '') + '</td><td>' + r.duels + '</td><td>' + r.dw + '</td><td>' + r.dl + '</td><td>' + r.gw + '</td><td>' + r.gl + '</td><td>' + (r.diff > 0 ? '+' : '') + r.diff + '</td><td>' + r.pts + '</td></tr>';
+    });
+    html += '</table></div><p class="hint">Desempate: puntos → duelos ganados → diferencia de partidas → partidas ganadas → resultado entre los empatados → orden de siembra.</p>';
+    if (isCut && S.cfg.format === 'swiss_cut' && S.phase === 'elim') {
+      html += '<h3>Posiciones finales (hasta ahora)</h3><div class="tw"><table><tr><th>#</th><th>Jugador</th></tr>' + rk.map(function (r) { return '<tr><td>' + r.pos + '</td><td>' + esc(r.name) + '</td></tr>'; }).join('') + '</table></div>';
+    }
+    return html;
+  }
+  function render() {
+    $('tTitle').textContent = S.cfg.name;
+    var p = S.plan; $('tInfo').innerHTML = esc(T.FORMAT_NAME[S.cfg.format]) + ' · ' + S.players.length + ' jugadores · mejor de ' + S.cfg.bestOf + ' · mínimo garantizado: ' + p.min + ' duelo' + (p.min === 1 ? '' : 's') + ' · <span class="badge">' + (S.status === 'finished' ? 'finalizado' : 'en curso') + '</span>';
+    $('champ').innerHTML = S.status === 'finished' ? '<div class="champion">🏆 Campeón: ' + esc(T.nameOf(S, S.champion)) + '</div>' : '';
+    var wd = $('wd'); wd.innerHTML = S.players.filter(function (q) { return S.withdrawn.indexOf(q.id) < 0; }).map(function (q) { return '<option value="' + q.id + '">' + esc(q.name) + '</option>'; }).join('');
+    var run = S.status === 'running'; ['btnNext', 'btnRound', 'btnAll', 'btnWd'].forEach(function (b) { $(b).disabled = !run; });
+    $('view').innerHTML = tab === 'fx' ? fixtureHtml() : tableHtml();
+    Array.prototype.forEach.call($('tabs').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.t === tab)); });
+  }
+  function simGames(d) {
+    var need = (S.cfg.bestOf + 1) / 2, a = 0, b = 0, g = [];
+    while (a < need && b < need) { if (rnd() < 0.5) { a++; g.push(d.a); } else { b++; g.push(d.b); } }
+    return g;
+  }
+  function apply(fn) { try { S = fn(); } catch (e) { alert(e.message); } render(); }
+  $('view').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-act]'); if (!btn) return;
+    var el = btn.closest('.duel'), id = el.dataset.id, d = null;
+    S.rounds.forEach(function (r) { r.duels.forEach(function (x) { if (x.id === id) d = x; }); });
+    if (btn.dataset.act === 'sim') return apply(function () { return T.recordGames(S, id, simGames(d)); });
+    apply(function () { return T.recordGames(S, id, d.games.concat([btn.dataset.act === 'a' ? d.a : d.b])); });
+  });
+  $('btnNext').addEventListener('click', function () { var p = T.pending(S); if (p.length) apply(function () { return T.recordGames(S, p[0].duel.id, simGames(p[0].duel)); }); });
+  $('btnRound').addEventListener('click', function () {
+    var cur = S.rounds.filter(function (r) { return r.duels.some(function (d) { return d.status !== 'done'; }); })[0]; if (!cur) return;
+    apply(function () { var st = S, ids = cur.duels.filter(function (d) { return d.status !== 'done' && d.a && d.b; }).map(function (d) { return d.id; }); ids.forEach(function (id) { var d = null; st.rounds.forEach(function (r) { r.duels.forEach(function (x) { if (x.id === id) d = x; }); }); if (d.status !== 'done') st = T.recordGames(st, id, simGames(d)); }); return st; });
+  });
+  $('btnAll').addEventListener('click', function () { apply(function () { var st = S, g = 0; while (st.status === 'running' && g++ < 5000) { var p = T.pending(st)[0].duel; st = T.recordGames(st, p.id, simGames(p)); } return st; }); });
+  $('btnWd').addEventListener('click', function () { var id = $('wd').value; if (id && confirm('¿Retirar a ' + T.nameOf(S, id) + '? Pierde por walkover todos sus duelos pendientes.')) apply(function () { return T.withdraw(S, id); }); });
+  $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-t]'); if (b) { tab = b.dataset.t; render(); } });
+  renderCheck();
+})();
+</script>
+</body>
+</html>
