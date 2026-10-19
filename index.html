@@ -5204,6 +5204,8 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
     'tno.invite': 'Invitar amigos',
     'tno.inviteBtn': 'Invitar',
     'tno.inviteNeed': 'Para invitar amigos necesitás una cuenta con nombre elegido. Igual podés compartir el código.',
+    'tno.inviteOr': 'Igual podés compartir el código.',
+    'tno.loadingFriends': 'Cargando tus amigos…',
     'tno.noFriends': 'Todavía no tenés amigos agregados. Compartí el código.',
     'tno.inviteSent': 'Invitación enviada a {name}.',
     'tno.invite.offline': '{name} no está conectado ahora: pasale el código.',
@@ -5293,6 +5295,8 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
     'tno.invite': 'Invite friends',
     'tno.inviteBtn': 'Invite',
     'tno.inviteNeed': 'To invite friends you need an account with a chosen name. You can still share the code.',
+    'tno.inviteOr': 'You can still share the code.',
+    'tno.loadingFriends': 'Loading your friends…',
     'tno.noFriends': 'You have no friends added yet. Share the code.',
     'tno.inviteSent': 'Invitation sent to {name}.',
     'tno.invite.offline': '{name} is not online right now: send them the code.',
@@ -10369,7 +10373,8 @@ window.NEON_BREAK = {
   function tnoLoadFriends() {
     if (!socialOk() || !tno.org) return;
     if (social.ov && Date.now() - tno.friendsAt < 30000) { tnoRender(); return; }
-    Auth.friendsOverview().then(function (o) { social.ov = o && typeof o === 'object' ? o : { list: [], stats_public: true }; tno.friendsAt = Date.now(); tnoRender(); }, function () {});
+    if (tno.friendsBusy) return; tno.friendsBusy = true;
+    Auth.friendsOverview().then(function (o) { social.ov = o && typeof o === 'object' ? o : { list: [], stats_public: true }; tno.friendsAt = Date.now(); tno.friendsBusy = false; tnoRender(); }, function () { tno.friendsBusy = false; tno.friendsAt = Date.now(); social.ov = social.ov || { list: [], stats_public: true }; tnoRender(); });
   }
   function tnoInvite(p) {
     tno.inviting = tno.inviting || {}; tno.inviting[p.id] = p.name;
@@ -10410,7 +10415,8 @@ window.NEON_BREAK = {
     $('tnoInviteBox').hidden = !(isOpen && org); $('tnoStart').hidden = !(isOpen && org); $('tnoStartHint').hidden = !(isOpen && org);
     var fb = $('tnoFriends'); fb.innerHTML = '';
     if (isOpen && org) {
-      if (!socialOk()) fb.appendChild(el('p', 'hint', t('tno.inviteNeed')));
+      if (!socialOk()) fb.appendChild(el('p', 'hint', t(Auth && Auth.user ? 'fr.needName' : 'fr.needLogin') + ' ' + t('tno.inviteOr')));      // dice cuál es el motivo: sin sesión, o sin nombre elegido
+      else if (!social.ov) { fb.appendChild(el('p', 'hint', t('tno.loadingFriends'))); tnoLoadFriends(); }
       else {
         var fr = ((social.ov && social.ov.list) || []).filter(function (x) { return x.status === 'accepted'; });
         if (!fr.length) fb.appendChild(el('p', 'hint', t('tno.noFriends')));
@@ -10487,6 +10493,7 @@ window.NEON_BREAK = {
     $('inviteOverlay').classList.add('open'); $('invYes').focus();
     try { sfx('levelup'); } catch (e) {}
   }
+  setInterval(function () { if ($('tnoOverlay').classList.contains('open') && tno.snap && tno.snap.status === 'open') tnoRender(); }, 4000);      // la sesión puede terminar de cargar con la pantalla ya abierta
   tnoLoadSess();
 
   applyI18n(); buildThemePicker(); syncSizePicker(); syncOpts(); syncMode(); syncVis(); resize(); open('menuOverlay'); initOnline(); updateSide();
