@@ -224,7 +224,7 @@ function createPenteServer(config) {
 
   function snapshot(room, seat) {
     return {
-      t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, spectators: room.spectators.size,
+      t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, owner: !!(seat && room.seats[seat] && room.ownerToken && room.seats[seat].token === room.ownerToken), tourney: !!room.tourney, spectators: room.spectators.size,
       names: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].name : ''; }); return o; })(),
       connected: connectedMap(room), bots: botsOf(room), moves: room.moves, outs: room.outs,
       over: room.over, rematch: room.rematch, clock: clockInfo(room),
@@ -597,7 +597,7 @@ function createPenteServer(config) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
-    if (!room.public) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores
+    if (!room.public && !(room.tourney && tourneys.canWatch(room.tourney.code, msg.ttoken))) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores (salvo una partida de torneo: la miran los participantes de ese torneo)
     if (!isFull(room)) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
     if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
     ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);
@@ -607,6 +607,18 @@ function createPenteServer(config) {
     announceSpectators(room);
   }
 
+
+  /* El que creó la sala la puede pasar a pública o privada cuando quiera (también con la partida en juego). Al pasar a privada, los que miraban salen. */
+  function isRoomOwner(ws, room) { const p = room && !ws.spectator && room.seats[ws.seat]; return !!p && !!room.ownerToken && p.token === room.ownerToken; }
+  function onSetPublic(ws, msg) {
+    const room = inRoom(ws); if (!room) return;
+    if (room.tourney || !isRoomOwner(ws, room)) return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+    const pub = msg.public === true;
+    if (room.public === pub) return send(ws, { t: 'vis', public: pub });
+    room.public = pub; touch(room);
+    if (!pub) { room.spectators.forEach((w) => { w.room = null; w.spectator = false; send(w, { t: 'roomClosed', why: 'private' }); }); room.spectators.clear(); }
+    broadcast(room, { t: 'vis', public: pub }); announceSpectators(room);
+  }
 
   /* ---------- Chat (jugadores y espectadores comparten la sala) ---------- */
   function sendChatLog(ws, room) { if (room.chat.length) send(ws, { t: 'chatlog', msgs: room.chat }); }
@@ -880,6 +892,7 @@ function createPenteServer(config) {
         case 'botoff': return onBotOff(ws, msg);
         case 'resign': return onResign(ws);
         case 'rematch': return onRematch(ws);
+        case 'setpublic': return onSetPublic(ws, msg);
         case 'claimWin': return onClaimWin(ws);
         case 'resync': { if (!ws.room) return send(ws, { t: 'error', code: 'NOT_IN_ROOM' }); return send(ws, snapshot(ws.room, ws.seat)); }
         case 'dailyInfo': return void onDailyInfo(ws, msg);

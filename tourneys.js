@@ -53,13 +53,15 @@ module.exports = function makeTourneys(ctx) {
   }
 
   function readyOf(T) { const o = {}; Object.keys(T.ready).forEach((k) => { if (T.ready[k].size) o[k] = [...T.ready[k]]; }); return o; }
+  function watchOf(T) { const o = {}; Object.keys(T.rooms).forEach((id) => { const r = rooms.get(T.rooms[id]); if (r && !r.over) o[id] = r.code; }); return o; }      // duelo → sala en juego (para mirarla)
+  function canWatch(code, token) { const T = map.get(String(code || '')); return !!T && T.players.some((x) => x.token === String(token || '')); }
   function snap(T, p) {
     let S = null; if (T.S) { S = JSON.parse(JSON.stringify(T.S)); S.log = []; }
     const live = p && p.go && rooms.get(p.go.code) && !rooms.get(p.go.code).over ? p.go : null;
     return {
       t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
       players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid })),
-      cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), go: live, note: T.note || ''
+      cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || ''
     };
   }
   function push(T) { T.touched = Date.now(); T.players.forEach((p) => { if (p.ws) send(p.ws, snap(T, p)); }); }
@@ -245,5 +247,5 @@ module.exports = function makeTourneys(ctx) {
     if (now - lastPrune > 6 * 3600e3) { lastPrune = now; safe(store.prune(now - KEEP_MS)); }
   }
 
-  return { handle, onSocketClose, gameOver, sweep, map };
+  return { handle, onSocketClose, gameOver, sweep, map, canWatch };
 };
