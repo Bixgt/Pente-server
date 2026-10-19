@@ -17,11 +17,11 @@
 'use strict';
 const PT = require('./pente-tournament.js');
 
-const MAX_TOURNEYS = 200, MAX_PLAYERS = 32, NAME_MAX = 40;
+const MAX_TOURNEYS = 200, MAX_PLAYERS = 32, NAME_MAX = 40, MAX_VIEWERS = 100, CHAT_KEEP = 60, CHAT_GAP_MS = 700;
 const KEEP_MS = 45 * 24 * 3600e3, EVICT_MS = 30 * 60e3;      // en el almacén se conserva 45 días sin actividad; de la memoria se descarga a los 30 min sin nadie conectado
 
 module.exports = function makeTourneys(ctx) {
-  const { send, cleanName, cleanDev, newToken, newCode, presence, friendsDb, dailyUid, makeRoom, rooms, store } = ctx;
+  const { send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom, rooms, store } = ctx;
   const map = new Map(), loading = new Map(), safe = (p) => Promise.resolve(p).catch(() => null);
   let lastPrune = 0;
   const err = (ws, code, detail) => send(ws, { t: 'terror', code, detail });
@@ -32,12 +32,12 @@ module.exports = function makeTourneys(ctx) {
 
   /* ---------- guardar / cargar ---------- */
   function pack(T) {          // lo que se guarda (sin conexiones, sin partidas en juego)
-    return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, seq: T.seq, orgPid: T.orgPid, S: T.S, created: T.created, last: T.last,
+    return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, seq: T.seq, orgPid: T.orgPid, S: T.S, created: T.created, last: T.last, chat: (T.chat || []).slice(-CHAT_KEEP),
       players: T.players.map((p) => ({ pid: p.pid, name: p.name, uid: p.uid, token: p.token })) };
   }
   function hydrate(d) {
     return { code: d.code, owner: d.owner || '', name: d.name, status: d.status, cfg: d.cfg, game: d.game, seq: d.seq || 0, orgPid: d.orgPid, S: d.S || null, created: d.created || Date.now(), last: d.last || Date.now(), touched: Date.now(),
-      players: (d.players || []).map((p) => ({ pid: p.pid, name: p.name, uid: p.uid || '', token: p.token, ws: null, go: null })), ready: {}, rooms: {}, note: '' };
+      players: (d.players || []).map((p) => ({ pid: p.pid, name: p.name, uid: p.uid || '', token: p.token, ws: null, go: null })), ready: {}, rooms: {}, note: '', viewers: new Set(), chat: Array.isArray(d.chat) ? d.chat.slice(-CHAT_KEEP) : [], chatSeq: Array.isArray(d.chat) && d.chat.length ? d.chat[d.chat.length - 1].n || d.chat.length : 0 };
   }
   function save(T) { T.last = Date.now(); return safe(store.put(T.code, { owner: T.owner, status: T.status, data: pack(T) })); }
   function load(code) {
@@ -54,17 +54,17 @@ module.exports = function makeTourneys(ctx) {
 
   function readyOf(T) { const o = {}; Object.keys(T.ready).forEach((k) => { if (T.ready[k].size) o[k] = [...T.ready[k]]; }); return o; }
   function watchOf(T) { const o = {}; Object.keys(T.rooms).forEach((id) => { const r = rooms.get(T.rooms[id]); if (r && !r.over) o[id] = r.code; }); return o; }      // duelo → sala en juego (para mirarla)
-  function canWatch(code, token) { const T = map.get(String(code || '')); return !!T && T.players.some((x) => x.token === String(token || '')); }
+  function canWatch(code, msg) { const T = map.get(codeOf(code)); return !!T && (T.players.some((x) => x.token === String((msg && msg.ttoken) || '')) || codeOf(msg && msg.tcode) === T.code); }      // se mira una partida del torneo con el token de un participante o, sin ser parte, con el código del torneo (el link)
   function snap(T, p) {
     let S = null; if (T.S) { S = JSON.parse(JSON.stringify(T.S)); S.log = []; }
     const live = p && p.go && rooms.get(p.go.code) && !rooms.get(p.go.code).over ? p.go : null;
     return {
       t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
       players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid })),
-      cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || ''
+      cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || '', chat: T.chat || [], viewers: T.viewers ? T.viewers.size : 0
     };
   }
-  function push(T) { T.touched = Date.now(); T.players.forEach((p) => { if (p.ws) send(p.ws, snap(T, p)); }); }
+  function push(T) { T.touched = Date.now(); T.players.forEach((p) => { if (p.ws) send(p.ws, snap(T, p)); }); if (T.viewers.size) { const v = snap(T, null); T.viewers.forEach((w) => send(w, v)); } }
   const commit = (T) => save(T).then(() => push(T));      // cambio de verdad (se guarda y se avisa); push solo = cambio de presencia o de partida en juego
   async function auth(ws, msg) {
     const T = await load(msg.code);
@@ -112,7 +112,7 @@ module.exports = function makeTourneys(ctx) {
     const cfg = cleanCfg(Object.assign({}, msg.cfg, { name: msg.name != null ? msg.name : (msg.cfg || {}).name }));
     const uid = await safe(dailyUid(ws, msg.jwt));
     if (ws.readyState !== 1 || ws.tn) return;
-    const T = { code, owner: dev, name: cfg.name, status: 'open', cfg, game: ctx.cleanOpts(Object.assign({}, msg.game, { players: 2, ffa: false })), players: [], seq: 0, orgPid: '', S: null, ready: {}, rooms: {}, created: Date.now(), last: Date.now(), touched: Date.now(), note: '' };
+    const T = { code, owner: dev, name: cfg.name, status: 'open', cfg, game: ctx.cleanOpts(Object.assign({}, msg.game, { players: 2, ffa: false })), players: [], seq: 0, orgPid: '', S: null, ready: {}, rooms: {}, viewers: new Set(), chat: [], chatSeq: 0, created: Date.now(), last: Date.now(), touched: Date.now(), note: '' };
     map.set(code, T);
     const p = addPlayer(T, ws, cleanName(msg.pname, 'Organizador'), uid); if (!p) { map.delete(code); return; }
     T.orgPid = p.pid;
@@ -231,13 +231,33 @@ module.exports = function makeTourneys(ctx) {
     } catch (e) { bad('error'); }
   }
 
-  const HANDLERS = { tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
+  /* Ver el torneo sin participar (con el código / el link): solo lectura, y desde ahí se miran las partidas en juego. */
+  async function onSpectateT(ws, msg) {
+    const T = await load(msg.code); if (!T) return err(ws, 'TN_NOT_FOUND');
+    if (T.viewers.size >= MAX_VIEWERS && !T.viewers.has(ws)) return err(ws, 'TN_FULL');
+    T.viewers.add(ws); ws.tv = T.code; T.touched = Date.now();
+    send(ws, { t: 'tview', code: T.code, name: T.name }); send(ws, snap(T, null));
+  }
+  let chatTimer = null; const chatDirty = new Set();
+  function saveChatSoon(T) { chatDirty.add(T); if (chatTimer) return; chatTimer = setTimeout(() => { chatTimer = null; const l = [...chatDirty]; chatDirty.clear(); l.forEach((x) => { if (map.get(x.code) === x) save(x); }); }, 4000); if (chatTimer.unref) chatTimer.unref(); }
+  async function onChat(ws, msg) {
+    const a = await auth(ws, msg); if (!a) return; const { T, p } = a;
+    const text = cleanChat(msg.text); if (!text) return;
+    const now = Date.now(); if (now - (ws.lastTChat || 0) < CHAT_GAP_MS) return err(ws, 'CHAT_RATE'); ws.lastTChat = now;
+    const m = { n: ++T.chatSeq, pid: p.pid, name: p.name, text };
+    T.chat.push(m); if (T.chat.length > CHAT_KEEP) T.chat.shift(); T.touched = now;
+    const o = { t: 'tchat', code: T.code, m };
+    T.players.forEach((x) => { if (x.ws) send(x.ws, o); }); T.viewers.forEach((w) => send(w, o)); saveChatSoon(T);
+  }
+
+  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
   function handle(ws, msg) {
     const h = HANDLERS[msg.t]; if (!h) return false;
     Promise.resolve().then(() => h(ws, msg)).catch(() => err(ws, 'SERVER_ERROR'));
     return true;
   }
   function onSocketClose(ws) {
+    if (ws.tv) { const V = map.get(ws.tv); if (V) V.viewers.delete(ws); ws.tv = null; }
     const k = ws.tn; if (!k) return; const T = map.get(k.code); if (!T) return;
     const p = byPid(T, k.pid); if (p && p.ws === ws) { p.ws = null; push(T); }
   }

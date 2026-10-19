@@ -382,7 +382,7 @@ function createPenteServer(config) {
     };
   }
   const tourneyStore = config.tourneyStore || (sbUrl && sbService ? sbTourneyStore() : memTourneyStore());
-  const tourneys = makeTourneys({ send, cleanName, cleanDev, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
+  const tourneys = makeTourneys({ send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
 
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
@@ -597,7 +597,7 @@ function createPenteServer(config) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
-    if (!room.public && !(room.tourney && tourneys.canWatch(room.tourney.code, msg.ttoken))) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores (salvo una partida de torneo: la miran los participantes de ese torneo)
+    if (!room.public && !(room.tourney && tourneys.canWatch(room.tourney.code, msg))) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores (salvo una partida de torneo: la miran los participantes de ese torneo)
     if (!isFull(room)) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
     if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
     ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);

@@ -27,8 +27,8 @@
   var LEVELS = {
     beginner: { depth: 1, width: 8, timeMs: 0, noise: 1.4, slipTop: 8, slipChance: 0.7, seesWin: 0.35, block4: 0.95, block3: 0.7, ignoreObvious: true },
     easy:   { depth: 1, width: 6,  timeMs: 0,   noise: 0.55, slipTop: 5, slipChance: 0.35, seesWin: 0.85, block4: 0.97, block3: 0.75 },
-    medium: { depth: 2, width: 10, timeMs: 350, noise: 0.08, slipTop: 1, slipChance: 0,    seesWin: 1 },
-    hard:   { depth: 4, width: 12, timeMs: 700, noise: 0,    slipTop: 1, slipChance: 0,    seesWin: 1 }
+    medium: { depth: 2, width: 10, timeMs: 350, noise: 0.08, slipTop: 1, slipChance: 0,    seesWin: 1, vary: 300 },
+    hard:   { depth: 4, width: 12, timeMs: 700, noise: 0,    slipTop: 1, slipChance: 0,    seesWin: 1, vary: 150 }       // vary: entre jugadas casi igual de buenas (a esta distancia de la mejor) elige una al azar: así no repite siempre la misma
   };
 
   // Valor de una racha de L fichas con "open" extremos libres (0, 1 o 2).
@@ -141,12 +141,14 @@
 
     // 2b) todos contra todos: no hay búsqueda a varias jugadas (con tres rivales no sirve el alfa-beta): se elige entre las mejores por nota rápida + cómo queda el tablero
     if (state.ffa && lv.depth > 1) {
-      var base = evaluate(state, me), top2 = cands.slice(0, lv.width + 2), bestF = null, bestS = -Infinity;
+      var base = evaluate(state, me), top2 = cands.slice(0, lv.width + 2), bestF = null, bestS = -Infinity, scored = [];
       top2.forEach(function (c) {
         var rr = P.playMove(state, c.x, c.y); if (!rr.ok) return;
         var sc = rr.won ? 1e9 : c.q0 * 0.6 + (evaluate(rr.state, me) - base) * 0.4;
+        scored.push([c, sc]);
         if (sc > bestS) { bestS = sc; bestF = c; }
       });
+      if (bestF && bestS < 1e8 && lv.vary) { var near = scored.filter(function (e) { return e[1] >= bestS - lv.vary; }); bestF = near[Math.floor(rng() * near.length)][0]; }
       if (bestF) return { x: bestF.x, y: bestF.y };
     }
     // 2) fácil: elige entre las mejores por nota rápida (a veces se equivoca)
@@ -186,7 +188,7 @@
       return best === -Infinity ? 0 : best;
     }
 
-    var rootList = cands.slice(0, lv.width + 4), bestMove = rootList[0], maxDepth = lv.depth;
+    var rootList = cands.slice(0, lv.width + 4), bestMove = rootList[0], maxDepth = lv.depth, vary = lv.vary || 0, doneRoot = null, doneBest = -Infinity;
     for (var depth = 1; depth <= maxDepth; depth++) {
       var bestV = -Infinity, bestHere = null, alpha = -Infinity;
       for (var k = 0; k < rootList.length; k++) {
@@ -195,7 +197,7 @@
         var v;
         if (r.won) v = WIN;
         else if (r.draw) v = 0;
-        else v = -negamax(r.state, depth - 1, -Infinity, -alpha, 1);
+        else v = -negamax(r.state, depth - 1, -Infinity, vary && alpha > -Infinity ? -(alpha - vary) : -alpha, 1);       // ventana más ancha: las jugadas casi igual de buenas quedan con su valor exacto
         if (aborted) break;
         v += lv.noise ? (rng() - 0.5) * lv.noise * 400 : 0;
         mv.v = v;
@@ -204,11 +206,15 @@
       }
       if (aborted) break;                                   // se acabó el tiempo: vale lo de la profundidad anterior
       if (bestHere) {
-        bestMove = bestHere;
+        bestMove = bestHere; doneBest = bestV; doneRoot = rootList.filter(function (m) { return m.v !== undefined; }).map(function (m) { return [m, m.v]; });
         rootList.sort(function (a, b) { return (b.v === undefined ? -Infinity : b.v) - (a.v === undefined ? -Infinity : a.v); });   // la mejor primero en la próxima vuelta
       }
       if (bestV >= WIN - 50) break;                         // ya ve una victoria forzada
       if (budget && Date.now() - t0 > budget * 0.6) break;  // no alcanza el tiempo para otra capa
+    }
+    if (vary && doneRoot && doneBest < WIN - 50 && doneBest > -WIN + 50) {      // sin victoria ni derrota a la vista: entre las casi mejores, una al azar
+      var close = doneRoot.filter(function (e) { return e[1] >= doneBest - vary; });
+      if (close.length > 1) bestMove = close[Math.floor(rng() * close.length)][0];
     }
     return { x: bestMove.x, y: bestMove.y };
   }
