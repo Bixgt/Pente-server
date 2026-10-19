@@ -364,7 +364,25 @@ function createPenteServer(config) {
     clockStart(room); rooms.set(code, room);
     return room;
   }
-  const tourneys = makeTourneys({ send, cleanName, cleanDev, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts });
+  /* Almacén de torneos: en producción la tabla public.tournaments de Supabase (supabase/tournaments.sql, solo la clave secret del servidor); sin Supabase, memoria. */
+  function memTourneyStore() {
+    const m = new Map();
+    return { get: async (c) => (m.has(c) ? JSON.parse(JSON.stringify(m.get(c).data)) : null), put: async (c, r) => { m.set(c, { owner: r.owner, status: r.status, data: JSON.parse(JSON.stringify(r.data)), at: Date.now() }); },
+      del: async (c) => { m.delete(c); }, openByOwner: async (dev) => [...m].filter(([, v]) => v.owner === dev && v.status === 'open').map(([c]) => c), prune: async (cut) => { m.forEach((v, c) => { if (v.at < cut) m.delete(c); }); } };
+  }
+  function sbTourneyStore() {
+    const H = (extra) => svcHeaders(Object.assign({ 'Content-Type': 'application/json' }, extra)), T = '/rest/v1/tournaments';
+    const ok = (r) => { if (!r.ok) throw new Error('tournaments ' + r.status); return r; };
+    return {
+      get: async (c) => { const rows = await sbFetch(T + '?code=eq.' + encodeURIComponent(c) + '&select=data', { headers: H() }).then(ok).then((r) => r.json()); return rows && rows[0] ? rows[0].data : null; },
+      put: async (c, r) => { await sbFetch(T + '?on_conflict=code', { method: 'POST', headers: H({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify({ code: c, owner: r.owner || '', status: r.status, data: r.data, updated_at: new Date().toISOString() }) }).then(ok); },
+      del: async (c) => { await sbFetch(T + '?code=eq.' + encodeURIComponent(c), { method: 'DELETE', headers: H() }).then(ok); },
+      openByOwner: async (dev) => { const rows = await sbFetch(T + '?owner=eq.' + encodeURIComponent(dev) + '&status=eq.open&select=code', { headers: H() }).then(ok).then((r) => r.json()); return (rows || []).map((x) => x.code); },
+      prune: async (cut) => { await sbFetch(T + '?updated_at=lt.' + encodeURIComponent(new Date(cut).toISOString()), { method: 'DELETE', headers: H() }).then(ok); }
+    };
+  }
+  const tourneyStore = config.tourneyStore || (sbUrl && sbService ? sbTourneyStore() : memTourneyStore());
+  const tourneys = makeTourneys({ send, cleanName, cleanDev, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
 
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
