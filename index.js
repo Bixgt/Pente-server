@@ -33,6 +33,7 @@ const P = require('./pente-core.js');
 const AI = require('./pente-ai.js');
 const D = require('./pente-daily.js');
 const XP = require('./pente-xp.js');
+const makeTourneys = require('./tourneys.js');
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0, 1 (se confunden)
 const CODE_LENGTH = 5;
@@ -242,6 +243,7 @@ function createPenteServer(config) {
     room.over = { winner, reason }; clockStop(room);
     broadcast(room, { t: 'over', winner, reason, clock: clockInfo(room) });
     record(room, winner, reason);
+    if (room.tourney) tourneys.gameOver(room, winner);
   }
   // Solo cuenta si juegan dos cuentas distintas y verificadas, y la partida tuvo un mínimo de jugadas. Una vez por partida.
   function record(room, winner, reason) {
@@ -346,14 +348,30 @@ function createPenteServer(config) {
     closeRoomNow(room, 'owner'); send(ws, { t: 'roomClosed', why: 'owner' });
   }
 
+  function cleanOpts(o) {
+    o = o && typeof o === 'object' ? o : {};
+    const variant = P.VARIANTS.includes(o.variant) ? o.variant : 'classic';
+    const ffa = o.players === 4 && o.ffa === true;
+    return { ffa, variant, blitz: o.blitz === true && o.bullet !== true, bullet: o.bullet === true, tournamentRule: variant === 'gomoku' || ffa ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true || o.bullet === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
+  }
+  /* Sala de una partida de torneo: los dos ya sentados (con su token); entran con un rejoin normal. seats = [{name, uid, token}] (asiento 1 y 2). */
+  function makeTourneyRoom(gameOpts, seats, tourney) {
+    if (rooms.size >= MAX_ROOMS) return null;
+    const code = newCode(rooms); if (!code) return null;
+    const room = { code, owner: '', emptySince: 0, opts: cleanOpts(Object.assign({}, gameOpts, { players: 2, ffa: false })), public: false, reserved: '', spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0, tourney };
+    freshGame(room);
+    seats.forEach((x, i) => { room.seats[i + 1] = { name: cleanName(x.name, 'Jugador ' + (i + 1)), token: x.token, ws: null, leftAt: Date.now(), uid: x.uid || '' }; });
+    clockStart(room); rooms.set(code, room);
+    return room;
+  }
+  const tourneys = makeTourneys({ send, cleanName, cleanDev, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts });
+
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     if (rooms.size >= MAX_ROOMS) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const code = newCode(rooms); if (!code) return send(ws, { t: 'error', code: 'SERVER_BUSY' });
     const o = msg.opts || {};
-    const variant = P.VARIANTS.includes(o.variant) ? o.variant : 'classic';
-    const ffa = o.players === 4 && o.ffa === true;
-    const opts = { ffa, variant, blitz: o.blitz === true && o.bullet !== true, bullet: o.bullet === true, tournamentRule: variant === 'gomoku' || ffa ? false : o.tournamentRule !== false, exactFive: variant === 'gomoku' ? false : !!o.exactFive, size: o.size === 13 ? 13 : 19, timer: o.blitz === true || o.bullet === true ? true : o.timer !== false, players: o.players === 4 ? 4 : 2 };   // blitz siempre lleva reloj   // solo 13 o 19: nada más pasa
+    const opts = cleanOpts(o);
     const dev = cleanDev(msg.dev); if (dev) closeOwned(dev, null);          // una sola sala en espera por aparato: la anterior se cierra
     const room = { code, owner: dev, emptySince: 0, opts, public: o.public === true, reserved: o.hold === true ? '*' : '',  spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
@@ -521,6 +539,7 @@ function createPenteServer(config) {
 
   function onRematch(ws) {
     const room = inRoom(ws); if (!room) return;
+    if (room.tourney) return send(ws, { t: 'error', code: 'TN_NO_REMATCH' });      // en un torneo la revancha la decide el torneo
     if (!gameOverNow(room)) return send(ws, { t: 'error', code: 'GAME_NOT_OVER' });
     room.rematch[ws.seat] = true; touch(room);
     if (seatList(room).every((s) => room.rematch[s])) {
@@ -851,11 +870,11 @@ function createPenteServer(config) {
         case 'dailyResign': return onDailyResign(ws);
         case 'dailyBoard': return void onDailyBoard(ws, msg);
         case 'ping': return send(ws, { t: 'pong' });
-        default: return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+        default: if (tourneys.handle(ws, msg)) return; return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       }
     });
     ws.on('close', () => {
-      lobbyLeave(ws); presenceDel(ws);
+      lobbyLeave(ws); presenceDel(ws); tourneys.onSocketClose(ws);
       const room = ws.room; if (!room) return;
       if (ws.spectator) { room.spectators.delete(ws); announceSpectators(room); return; }
       const p = room.seats[ws.seat];
@@ -871,7 +890,7 @@ function createPenteServer(config) {
   // Latido: detecta conexiones muertas y mantiene vivas las de los proxies. Limpia salas viejas.
   const timer = setInterval(() => {
     wss.clients.forEach((ws) => { if (!ws.isAlive) return ws.terminate(); ws.isAlive = false; try { ws.ping(); } catch (e) {} });
-    const now = Date.now();
+    const now = Date.now(); tourneys.sweep(now);
     rooms.forEach((room, code) => {
       if (now - room.lastActivity > ROOM_IDLE_TTL_MS) rooms.delete(code);
       else if (isWaiting(room) && !humanOnline(room) && room.emptySince && now - room.emptySince > emptyWaitMs) rooms.delete(code);   // esperaba rival y se fue todo el mundo
