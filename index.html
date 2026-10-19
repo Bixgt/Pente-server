@@ -503,6 +503,13 @@ html[data-theme="papel"] .tn-p.l span:first-child { text-decoration: line-throug
 
 /* Menú principal: letras normales (sin negrita) */
 #menuOverlay .btn { font-weight: 400; }
+/* Menú principal: ícono a la izquierda, texto alineado a la izquierda y flechita a la derecha */
+#menuOverlay .btns .btn { display: flex; align-items: center; gap: 16px; text-align: left; padding-left: 20px; padding-right: 16px; }
+#menuOverlay .btn .mi { flex: none; width: 24px; height: 24px; opacity: .95; }
+#menuOverlay .btn .ml { flex: 1; min-width: 0; }
+#menuOverlay .btn .mc { flex: none; width: 20px; height: 20px; opacity: .8; margin-left: auto; }
+#menuOverlay .btn .badge { margin-left: 0; }
+#menuOverlay .btn[hidden] { display: none; }
 
 .seats .seat.free { background: transparent; color: inherit; text-align: left; cursor: pointer; border-style: dashed; font: inherit; font-weight: 600; opacity: .85; }
 .seats .seat.free:hover { border-color: var(--accent, #e8b04a); }
@@ -848,6 +855,7 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
     <button class="btn" id="btnMenu" data-i18n="hud.menu"></button>
     <button class="btn gamecfg" id="btnGameCfg" data-i18n-aria="menu.settings" data-i18n-title="menu.settings"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     <button class="btn" id="btnPause" hidden data-i18n="pause.btn"></button>
+    <button class="btn" id="btnVis" hidden></button>
     <button class="btn" id="btnRestart" data-i18n="hud.restart"></button>
     <button class="btn" id="btnClaim" hidden data-i18n="online.claim"></button>
     <button class="btn primary" id="btnResult" hidden data-i18n="end.result"></button>
@@ -873,14 +881,14 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
     <button type="button" class="chip" id="menuDaily"></button>
     <button type="button" class="xpmini" id="menuXp"><span class="xp-lv" id="mxLv"></span><span class="xpbar"><i id="mxFill"></i></span><span class="xp-txt" id="mxTxt"></span></button>
     <div class="btns">
-      <button class="btn primary" id="btnResume" hidden data-i18n="menu.resume"></button>
-      <button class="btn primary" id="btnPlay" data-i18n="menu.play"></button>
-      <button class="btn" id="btnTourn" data-i18n="tn.menu"></button>
-      <button class="btn" id="btnFriends"><span data-i18n="fr.btn"></span><b class="badge" id="frBadge" hidden></b></button>
-      <button class="btn" id="btnStats" data-i18n="prof.stats"></button>
-      <button class="btn" id="btnCustomize" data-i18n="cz.title"></button>
-      <button class="btn" id="btnRules" data-i18n="menu.rules"></button>
-      <button class="btn" id="btnInstall" hidden data-i18n="inst.btn"></button>
+      <button class="btn primary" id="btnResume" hidden><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><span class="ml" data-i18n="menu.resume"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn primary" id="btnPlay"><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="currentColor" stroke="none" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg><span class="ml" data-i18n="menu.play"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="btnTourn"><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h8v6a4 4 0 0 1-8 0z"/><path d="M8 6H4v2a4 4 0 0 0 4 4"/><path d="M16 6h4v2a4 4 0 0 1-4 4"/><path d="M12 14v4"/><path d="M8 20h8"/></svg><span class="ml" data-i18n="tn.menu"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="btnFriends"><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20v-1a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v1"/><circle cx="17" cy="9" r="2.5"/><path d="M17 14a4 4 0 0 1 4 4v2"/></svg><span class="ml" data-i18n="fr.btn"></span><b class="badge" id="frBadge" hidden></b><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="btnStats"><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20V12"/><path d="M12 20V5"/><path d="M19 20v-9"/></svg><span class="ml" data-i18n="prof.stats"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="btnCustomize"><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 3l3 3-9 9-3-3z"/><path d="M9 12c-2.5 0-4 1.6-4 4 0 1.5-.8 2.6-2 3 3.5 1 8 .5 8-3.5"/></svg><span class="ml" data-i18n="cz.title"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="btnRules"><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5.5C5 4.5 8 4.5 12 6.5c4-2 7-2 9-1v13c-2-1-5-1-9 1-4-2-7-2-9-1z"/><path d="M12 6.5V19.5"/></svg><span class="ml" data-i18n="menu.rules"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+      <button class="btn" id="btnInstall" hidden><svg class="mi" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 11l5 5 5-5"/><path d="M5 20h14"/></svg><span class="ml" data-i18n="inst.btn"></span><svg class="mc" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
   </div>
 </div>
@@ -1263,6 +1271,7 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
     <div class="btns">
       <button class="btn primary" id="btnCopyLink" data-i18n="online.copyLink"></button>
       <button class="btn" id="btnShare" hidden data-i18n="online.share"></button>
+      <button class="btn" id="btnWaitVis" hidden></button>
       <button class="btn" id="btnWaitHold" hidden data-i18n="online.hold"></button>
       <button class="btn" id="btnWaitCancel" data-i18n="online.cancel"></button>
     </div>
@@ -5180,6 +5189,12 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
 (function (root) {
   'use strict';
   Object.assign(root.I18n.STRINGS.es, {
+    'tno.watch': 'Mirar',
+    'vis.makePublic': 'Hacer pública',
+    'vis.makePrivate': 'Hacer privada',
+    'vis.nowPublic': 'Sala pública: aparece en la lista y la pueden mirar.',
+    'vis.nowPrivate': 'Sala privada: solo entran quienes tengan el código.',
+    'online.roomPrivate': 'El anfitrión pasó la sala a privada.',
     'tno.createOnline': 'Crear torneo online',
     'tno.createOnlineSub': 'La gente se une con un código o por invitación y juega los duelos desde acá.',
     'tno.localCreate': 'Torneo local (cargás vos los resultados)',
@@ -5271,6 +5286,12 @@ html[data-theme="playa"] #menuOverlay .xpbar { background: rgba(58,40,18,.18); }
 (function (root) {
   'use strict';
   Object.assign(root.I18n.STRINGS.en, {
+    'tno.watch': 'Watch',
+    'vis.makePublic': 'Make public',
+    'vis.makePrivate': 'Make private',
+    'vis.nowPublic': 'Public room: it shows in the list and people can watch.',
+    'vis.nowPrivate': 'Private room: only people with the code can join.',
+    'online.roomPrivate': 'The host made the room private.',
     'tno.createOnline': 'Create online tournament',
     'tno.createOnlineSub': 'People join with a code or an invitation and play their duels right here.',
     'tno.localCreate': 'Local tournament (you enter the results)',
@@ -8320,7 +8341,13 @@ window.NEON_BREAK = {
     if (q && serverUrl() === q) u += '&server=' + encodeURIComponent(q);
     return u;
   }
-  function updateOnlineButtons() { $('btnRestart').textContent = online.spectator ? t('spec.leave') : (online.active || daily.active) ? t('hud.resign') : t('hud.restart'); }
+  function visUi() {
+    var can = online.active && !online.spectator && !online.tourney && online.mine, txt = t(online.isPublic ? 'vis.makePrivate' : 'vis.makePublic');
+    ['btnVis', 'btnWaitVis'].forEach(function (id) { var b = $(id); b.hidden = !can; b.textContent = (online.isPublic ? '🔒 ' : '🔓 ') + txt; });
+    if ($('waitOverlay').classList.contains('open')) $('waitVis').textContent = t(online.isPublic ? 'online.waitPublic' : 'online.waitPrivate') + (online.mode !== 'classic' ? ' · ' + t('mode.' + online.mode) : '');
+  }
+  ['btnVis', 'btnWaitVis'].forEach(function (id) { $(id).addEventListener('click', function () { if (online.net) online.net.send({ t: 'setpublic', public: !online.isPublic }); }); });
+  function updateOnlineButtons() { visUi(); $('btnRestart').textContent = online.spectator ? t('spec.leave') : (online.active || daily.active) ? t('hud.resign') : t('hud.restart'); }
 
   function ensureNet(url) {
     if (online.net) return;
@@ -8334,7 +8361,7 @@ window.NEON_BREAK = {
       },
       onOpen: function () {
         if (online.token && online.code) { online.rejoining = true; online.net.send({ t: 'rejoin', code: online.code, token: online.token }); }
-        else if (online.spectator && online.code) { online.rejoining = true; online.net.send({ t: 'spectate', code: online.code, name: (online.intent && online.intent.name) || myName() }); }   // se cortó la conexión: vuelve a mirar (con su nombre)
+        else if (online.spectator && online.code) { online.rejoining = true; online.net.send({ t: 'spectate', code: online.code, ttoken: online.specTt || undefined, name: (online.intent && online.intent.name) || myName() }); }   // se cortó la conexión: vuelve a mirar (con su nombre)
         else if (online.intent) online.net.send(online.intent);
         else if (rooms.open) { requestRooms(); lobbyJoin(); }
       },
@@ -8362,7 +8389,7 @@ window.NEON_BREAK = {
     clearTimeout(online.awaitTimer); clearClaim();
     online.net = null; online.active = false; online.conn = 'closed'; online.code = ''; online.token = ''; online.me = 0;
     online.spectator = false; online.specN = 0; online.cid = ''; chatReset(); stopRooms(); fx.length = 0; $('btnSpectateOffer').hidden = true;
-    online.intent = null; online.invite = null; online.seek = false; online.rejoining = false; online.mine = false; online.tourney = false; online.over = null; online.awaiting = false; online.rivalLeftAt = 0;
+    online.intent = null; online.specTt = ''; online.invite = null; online.seek = false; online.rejoining = false; online.mine = false; online.tourney = false; online.over = null; online.awaiting = false; online.rivalLeftAt = 0;
     online.connected = { 1: true, 2: true, 3: true, 4: true }; online.rematch = { 1: false, 2: false, 3: false, 4: false }; online.seat = 0; online.players = 2; online.bots = {}; online.mode = 'classic'; online.ffa = false; seatNames = {};
     clearSession(); updateOnlineButtons(); updateRematchUi();
     if (wasActive) { videoDiscard(); state = null; clk = null; hover = pending = null; setStatus(''); render(); }
@@ -8383,7 +8410,7 @@ window.NEON_BREAK = {
       case 'roomClosed': {
         var waitOpen = $('waitOverlay').classList.contains('open');
         clearTimeout(online.closeTimer); leaveOnline(false);
-        onlineMsg(t(m.why === 'replaced' ? 'online.roomReplaced' : m.why === 'gone' ? 'online.roomGone' : 'online.roomClosed')); renderHeld();
+        onlineMsg(t(m.why === 'replaced' ? 'online.roomReplaced' : m.why === 'gone' ? 'online.roomGone' : m.why === 'private' ? 'online.roomPrivate' : 'online.roomClosed')); renderHeld();
         if (waitOpen) open('playOverlay');
         break;
       }
@@ -8395,6 +8422,7 @@ window.NEON_BREAK = {
       case 'lchat': if (!rooms.open || !m || typeof m.text !== 'string') break; lobby.msgs.push({ id: m.id, name: String(m.name || ''), text: m.text }); if (lobby.msgs.length > 100) lobby.msgs.shift(); renderLobby(); break;
       case 'lobbyn': lobby.n = Math.max(0, Math.floor(Number(m.n)) || 0); if (rooms.open) renderLobby(); break;
       case 'spectators': online.specN = m.n; updateHud(); break;
+      case 'vis': online.isPublic = !!m.public; visUi(); setStatus(t(m.public ? 'vis.nowPublic' : 'vis.nowPrivate'), true); break;
       case 'chat': chatIncoming(m); break;
       case 'chatlog': chat.msgs = []; chat.people = {}; (m.msgs || []).forEach(function (x) { chatAdd(x, true); }); renderChat(); break;
       case 'sync': applySync(m); break;
@@ -8427,6 +8455,7 @@ window.NEON_BREAK = {
       g = r.state;
     }
     applyOuts(Infinity);
+    if (!online.spectator) { online.isPublic = !!m.public; online.mine = !!m.owner; online.tourney = online.tourney || !!m.tourney; }
     state = g; online.seat = m.you; online.me = m.you ? teamOfSeat(m.you) : 0; online.over = m.over || null; online.connected = m.connected;
     online.players = (m.opts && m.opts.players === 4) ? 4 : 2; online.bots = m.bots || {}; online.ffa = !!(m.opts && m.opts.ffa);
     online.mode = m.opts && m.opts.bullet ? 'bullet' : m.opts && m.opts.blitz ? 'blitz' : (m.opts && m.opts.variant) || 'classic';
@@ -8436,7 +8465,7 @@ window.NEON_BREAK = {
     if (online.ffa) { names[3] = teamName(3); names[4] = teamName(4); }
     hover = pending = drag = settle = null; fx.length = 0; kbd = { x: centerIdx(), y: centerIdx() };
     trackRival(m.disconnectedFor ? Math.max.apply(null, rivalSeats().map(function (x) { return m.disconnectedFor[x] || 0; })) : 0);
-    setStatus(''); render();
+    setStatus(''); render(); visUi();
     if (!onlineFull()) showWait();
     else if (online.over) { open('endOverlay'); showEnd(); }
     else {
@@ -8884,7 +8913,7 @@ window.NEON_BREAK = {
   $('btnRulesClose').addEventListener('click', function () { open('menuOverlay'); });
   $('btnRestart').addEventListener('click', function () {
     if (daily.active) { if (!isOver()) ask(t('daily.resignConfirm'), t('hud.resign'), function () { if (!isOver() && daily.net) daily.net.send({ t: 'dailyResign' }); }); else open('dailyOverlay'); return; }
-    if (online.spectator) { leaveOnline(false); open('menuOverlay'); return; }
+    if (online.spectator) { var bt = !!online.tourney && !!tno.code; leaveOnline(false); if (bt) { tnoConnect(); tnoOpen(); } else open('menuOverlay'); return; }
     if (online.active) { if (!isOver() && online.net) ask(t('online.resignConfirm'), t('hud.resign'), function () { if (!isOver() && online.net) online.net.send({ t: 'resign' }); }); return; }
     if (!state || state.moves.length === 0 || state.status !== 'playing') rematch(); else ask(t('confirm.restart'), t('dlg.restart'), rematch);
   });
@@ -10129,6 +10158,7 @@ window.NEON_BREAK = {
     else if (d.a && d.b) {
       box.appendChild(el('div', 'tn-meta', t('tn.opens', { n: d.games.length + 1, name: tnName(S, PT.opener(d, d.games.length)) }) + (S.cfg.bestOf > 1 ? ' · ' + t('tn.need', { n: need }) : '') + (o && o.playing && o.playing.indexOf(d.id) >= 0 ? ' · ▶ ' + t('tno.live2') : '')));
       if (o && (d.a === o.pid || d.b === o.pid)) box.classList.add('mine');
+      if (o && o.watch && o.watch[d.id] && d.a !== o.pid && d.b !== o.pid) { var bw = el('button', 'btn small', '👁 ' + t('tno.watch')); bw.type = 'button'; bw.dataset.watch = o.watch[d.id]; box.appendChild(bw); }
       if (o && !o.org) return box;
       var acts = el('div', 'tn-acts');
       // un toque con el resultado final (arriba – abajo): no hace falta marcar quién ganó cada partida
@@ -10334,6 +10364,8 @@ window.NEON_BREAK = {
   /* si el servidor dice que hay una partida lista para mí, entro a la sala (otra conexión; esta sigue escuchando el torneo) */
   function tnoCheckGo(m) {
     if (!m.go || tno.inGame === m.go.code) return;
+    if (online.active && online.code === m.go.code && !online.spectator) { tno.inGame = m.go.code; closeAll(); return; }      // salió al menú sin cerrar la partida: se vuelve a la misma sala
+    if (online.active && online.spectator && online.tourney) leaveOnline(false);                                                // estaba mirando otra partida del torneo: ahora le toca jugar
     if (online.active || daily.active || tut.active) { tnoNote(t('tno.inGame'), false); return; }
     tno.inGame = m.go.code; closeAll(); $('btnSpectateOffer').hidden = true;
     startOnline({ t: 'rejoin', code: m.go.code, token: m.go.token }); online.tourney = true;
@@ -10436,7 +10468,7 @@ window.NEON_BREAK = {
     // fixture / tabla
     if (!isOpen && S) {
       Array.prototype.forEach.call($('tnoTabs').children, function (b) { b.setAttribute('aria-pressed', String(b.dataset.t === tno.tab)); });
-      var body = $('tnoBody'); body.innerHTML = ''; body.appendChild(tno.tab === 'fx' ? tnFixture(S, { pid: pid, org: org, playing: m.playing }) : tnTable(S));
+      var body = $('tnoBody'); body.innerHTML = ''; body.appendChild(tno.tab === 'fx' ? tnFixture(S, { pid: pid, org: org, playing: m.playing, watch: m.watch || {} }) : tnTable(S));
     }
   }
   function tnoMyDuel(m, box) {
@@ -10471,6 +10503,8 @@ window.NEON_BREAK = {
   $('tnoStart').addEventListener('click', function () { tnoSend({ t: 'tstart' }); });
   $('tnoTabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-t]'); if (b) { tno.tab = b.dataset.t; tnoRender(); } });
   $('tnoBody').addEventListener('click', function (e) {
+    var bw = e.target.closest('button[data-watch]');
+    if (bw && tno.snap) { if (online.active || daily.active || tut.active) { tnoNote(t('tno.inGame'), false); return; } closeAll(); online.specTt = tno.token; startOnline({ t: 'spectate', code: bw.dataset.watch, ttoken: tno.token }); online.tourney = true; return; }
     var btn = e.target.closest('button[data-act]'); if (!btn || !tno.snap) return;
     var id = btn.closest('.tn-duel').dataset.id, d = null, S = tno.snap.S;
     S.rounds.forEach(function (r) { r.duels.forEach(function (x) { if (x.id === id) d = x; }); }); if (!d) return;
