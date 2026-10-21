@@ -8,15 +8,11 @@
   'use strict';
   var MAX_LEVEL = 50, MIN_MOVES = 10, CASUAL_CAP = 50, CAP = 10000000;
   var TITLE_AT = [1, 4, 8, 13, 19, 26, 34, 43];                       // nivel desde el que rige cada título (xp.title.1 ... xp.title.8)
-  var AVATAR_LEVEL = { a13: 3, a14: 5, a15: 8, a16: 11, a17: 14, a18: 18, a19: 24, a20: 30 };   // los 12 primeros avatares son libres
   var GEM_LEVEL = { oro: 6, neon: 9, coral: 12, obsidiana: 16, galaxia: 22 };                    // las 9 piedras de siempre son libres
   // Personalizar avatar: nivel desde el que se puede elegir cada pieza (lo que no figura es libre desde el nivel 1)
   var PART_LEVEL = {
-    body: { esbelto: 3, panzon: 6, hombros: 10, columna: 15 },
-    hair: { rodete: 2, melena: 5, rulos: 8, mohicano: 12, casco: 17 },
-    face: { lengua: 2, dormido: 3, lloron: 4, cool: 7, enamorado: 9, travieso: 11, asustado: 13, rico: 16, mareado: 20 },
-    color: { coral: 2, violeta: 4, cian: 8, blanca: 14, negra: 19 },
-    hairColor: { pelirrojo: 3, blanco: 6, celeste: 12, violeta: 18 }
+    face: { enfadado: 3, sorprendido: 6, pensando: 10, seguro: 15 },
+    color: { dorado: 2, verde: 4, rojo: 8, gris: 14, negro: 19 }
   };
   var FIRSTS = { tutorial: 50, daily: 25 };                          // premio por única vez; 'mode:<modo>' vale 20
 
@@ -49,13 +45,12 @@
   }
   function unlocksAt(level) {                                         // premios que se destraban justo en ese nivel
     var out = [];
-    Object.keys(AVATAR_LEVEL).forEach(function (id) { if (AVATAR_LEVEL[id] === level) out.push({ type: 'avatar', id: id }); });
     Object.keys(GEM_LEVEL).forEach(function (id) { if (GEM_LEVEL[id] === level) out.push({ type: 'gem', id: id }); });
     return out;
   }
   function nextUnlock(level) {                                        // el próximo premio por destrabar (para mostrarlo en el perfil)
     var best = null;
-    Object.keys(AVATAR_LEVEL).forEach(function (id) { var lv = AVATAR_LEVEL[id]; if (lv > level && (!best || lv < best.level)) best = { type: 'avatar', id: id, level: lv }; });
+    Object.keys(PART_LEVEL).forEach(function (k) { Object.keys(PART_LEVEL[k]).forEach(function (id) { var lv = PART_LEVEL[k][id]; if (lv > level && (!best || lv < best.level)) best = { type: 'part', kind: k, id: id, level: lv }; }); });
     Object.keys(GEM_LEVEL).forEach(function (id) { var lv = GEM_LEVEL[id]; if (lv > level && (!best || lv < best.level)) best = { type: 'gem', id: id, level: lv }; });
     return best;
   }
@@ -64,7 +59,6 @@
   function partsAt(level) {                                          // piezas de personaje que se destraban justo en ese nivel
     var out = []; Object.keys(PART_LEVEL).forEach(function (k) { Object.keys(PART_LEVEL[k]).forEach(function (id) { if (PART_LEVEL[k][id] === level) out.push({ kind: k, id: id }); }); }); return out;
   }
-  function avatarOk(id, level) { return !AVATAR_LEVEL[id] || level >= AVATAR_LEVEL[id]; }
   function gemOk(id, level) { return !GEM_LEVEL[id] || level >= GEM_LEVEL[id]; }
 
   /* ev: { k:'daily', win, moves, streak, date } | { k:'online'|'ai'|'local', win, draw, moves, mode } | { k:'first', id }
@@ -106,6 +100,6 @@
   }
   function onlineGain(win) { return 20 + (win ? 20 : 0); }
 
-  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, AVATAR_LEVEL: AVATAR_LEVEL, GEM_LEVEL: GEM_LEVEL, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
-    clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, avatarOk: avatarOk, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award };
+  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
+    clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award };
 });
