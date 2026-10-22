@@ -9,6 +9,7 @@
  *   rr         todos contra todos. Garantiza n-1 duelos.
  *   swiss      sistema suizo: R rondas, cada ronda enfrenta gente con rendimiento parecido y nadie repite rival.
  *   swiss_cut  suizo + los mejores 2/4/8/16 juegan una eliminatoria final.
+ *   rr_cut     todos contra todos + los mejores 2/4/8/16 juegan una eliminatoria final.
  *
  * "Mínimo de duelos": se garantiza por construcción (suizo/todos contra todos) y se comprueba ANTES de empezar.
  * Un descanso ("bye", cuando la cantidad es impar) NO cuenta como duelo: por eso con cantidad impar el suizo juega una ronda extra.
@@ -21,10 +22,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  var FORMATS = ['elim', 'rr', 'swiss', 'swiss_cut'];
+  var FORMATS = ['elim', 'rr', 'swiss', 'swiss_cut', 'rr_cut'];
   var BEST_OF = [1, 3, 5, 7];
   var MAX_PLAYERS = 64, NAME_MAX = 20, BYE = '__bye';
-  var FORMAT_NAME = { elim: 'Eliminación directa', rr: 'Todos contra todos', swiss: 'Suizo', swiss_cut: 'Suizo + eliminatoria final' };
+  var FORMAT_NAME = { elim: 'Eliminación directa', rr: 'Todos contra todos', swiss: 'Suizo', swiss_cut: 'Suizo + eliminatoria final', rr_cut: 'Todos contra todos + eliminatoria final' };
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
   function isPow2(x) { return x >= 1 && (x & (x - 1)) === 0; }
@@ -75,6 +76,7 @@
     var f = c.format, R, K;
     if (f === 'elim') { K = ceilLog2(n); return { rounds: K, duels: n - 1, min: 1, max: K }; }
     if (f === 'rr') { var m = evenUp(n); return { rounds: m - 1, duels: n * (n - 1) / 2, min: n - 1, max: n - 1 }; }
+    if (f === 'rr_cut') { var m2 = evenUp(n); K = ceilLog2(c.cut); return { rounds: m2 - 1 + K, duels: n * (n - 1) / 2 + c.cut - 1, min: n - 1, max: n - 1 + K, rrRounds: m2 - 1, cutRounds: K }; }
     R = swissRounds(n, c.minDuels);
     var sw = { rounds: R, duels: R * Math.floor(n / 2), min: n % 2 ? R - 1 : R, max: R };
     if (f === 'swiss') return sw;
@@ -96,11 +98,11 @@
 
     if (c.minDuels > n - 1) err('minDuels', 'Con ' + n + ' jugadores nadie puede enfrentar a más de ' + (n - 1) + ' rivales distintos: el mínimo no puede ser ' + c.minDuels + '.');
     else if (c.format === 'elim' && c.minDuels > 1) err('minDuels', 'La eliminación directa solo garantiza 1 duelo: quien pierde la primera vez queda afuera.');
-    else if (c.format === 'rr' && c.minDuels > n - 1) err('minDuels', 'Todos contra todos da ' + (n - 1) + ' duelos a cada jugador.');
+    else if ((c.format === 'rr' || c.format === 'rr_cut') && c.minDuels > n - 1) err('minDuels', 'Todos contra todos da ' + (n - 1) + ' duelos a cada jugador.');
     else if ((c.format === 'swiss' || c.format === 'swiss_cut') && !swissFeasible(n, swissRounds(n, c.minDuels))) {
       err('minDuels', 'Con ' + n + ' jugadores el suizo garantiza como máximo ' + swissMaxMin(n) + ' duelo' + (swissMaxMin(n) === 1 ? '' : 's') + ' (para más conviene todos contra todos).');
     }
-    if (c.format === 'swiss_cut') {
+    if (c.format === 'swiss_cut' || c.format === 'rr_cut') {
       if (!isPow2(c.cut) || c.cut < 2) err('cut', 'Los que pasan a la eliminatoria tienen que ser 2, 4, 8 o 16.');
       else if (c.cut >= n) err('cut', 'Tienen que pasar menos jugadores que los que participan (' + n + ').');
     }
@@ -126,6 +128,7 @@
     }
     var want = Math.max(1, c.minDuels), cutDef = Math.max(2, Math.min(floorPow2(Math.max(2, Math.floor(n / 2))), 8));
     if (want <= n - 1) add('Todos contra todos (cada uno juega ' + (n - 1) + ' duelos)', { format: 'rr', minDuels: Math.min(want, n - 1) });
+    if (want <= n - 1 && n >= 3) add('Todos contra todos (' + (n - 1) + ' duelos) y eliminatoria final con los mejores ' + cutDef, { format: 'rr_cut', minDuels: Math.min(want, n - 1), cut: cutDef });
     add('Suizo con ' + want + ' duelos garantizados', { format: 'swiss', minDuels: want });
     add('Suizo (' + want + ' duelos) y eliminatoria final con los mejores ' + cutDef, { format: 'swiss_cut', minDuels: want, cut: cutDef });
     var mx = swissMaxMin(n);
@@ -149,7 +152,7 @@
     if (!v.ok) return { ok: false, title: v.cfg.name, lines: [], promises: [], errors: v.errors, suggestions: v.suggestions };
     var c = v.cfg, p = v.plan, need = (c.bestOf + 1) / 2, lines = [], promises = [];
     lines.push('Jugadores: ' + v.n);
-    lines.push('Formato: ' + FORMAT_NAME[c.format] + (c.format === 'swiss' ? ' (' + p.rounds + ' rondas)' : c.format === 'swiss_cut' ? ' (' + p.swissRounds + ' rondas + top ' + c.cut + ')' : ''));
+    lines.push('Formato: ' + FORMAT_NAME[c.format] + (c.format === 'swiss' ? ' (' + p.rounds + ' rondas)' : c.format === 'swiss_cut' ? ' (' + p.swissRounds + ' rondas + top ' + c.cut + ')' : c.format === 'rr_cut' ? ' (' + p.rrRounds + ' fechas + top ' + c.cut + ')' : ''));
     lines.push('Duelo: ' + (c.bestOf === 1 ? 'una sola partida' : 'mejor de ' + c.bestOf + ' (gana quien llegue a ' + need + ' partidas)'));
     lines.push('Puntos: ' + c.points.win + ' por duelo ganado, ' + c.points.loss + ' por perdido');
     lines.push('En total: ' + p.duels + ' duelos en ' + p.rounds + ' rondas');
@@ -287,8 +290,8 @@
     if (np.error) throw new Error(np.error);
     var v = validate(cfg, np.players);
     if (!v.ok) { var e = new Error(v.errors[0].msg); e.validation = v; throw e; }
-    var S = { v: 1, cfg: v.cfg, plan: v.plan, players: np.players, rounds: [], status: 'running', phase: v.cfg.format === 'elim' ? 'elim' : v.cfg.format === 'rr' ? 'rr' : 'swiss', champion: null, withdrawn: [], duelSeq: 0, phasePrefix: 'S', log: [] };
-    if (v.cfg.format === 'rr') rrRounds(S);
+    var S = { v: 1, cfg: v.cfg, plan: v.plan, players: np.players, rounds: [], status: 'running', phase: v.cfg.format === 'elim' ? 'elim' : (v.cfg.format === 'rr' || v.cfg.format === 'rr_cut') ? 'rr' : 'swiss', champion: null, withdrawn: [], duelSeq: 0, phasePrefix: 'S', log: [] };
+    if (v.cfg.format === 'rr' || v.cfg.format === 'rr_cut') rrRounds(S);
     else if (v.cfg.format === 'elim') buildElim(S, S.players.map(function (p) { return p.id; }));
     else swissRound(S);
     autoWalkover(S); advance(S);
@@ -397,6 +400,19 @@
         if (S.rounds.every(allDone)) finish(S);
         return;
       }
+      if (f === 'rr_cut') {                                     // todos contra todos: cuando terminan todas las fechas, los mejores pasan a la eliminatoria
+        if (S.phase === 'rr') {
+          if (!S.rounds.every(allDone)) return;
+          var tb = standings(S, { phase: 'rr' }).filter(function (x) { return S.withdrawn.indexOf(x.id) < 0; });
+          var ct = Math.min(S.cfg.cut, floorPow2(tb.length));
+          if (ct < 2) { finish(S); return; }
+          S.phase = 'elim'; S.phasePrefix = 'E';
+          buildElim(S, tb.slice(0, ct).map(function (x) { return x.id; }));
+          autoWalkover(S); continue;
+        }
+        if (S.rounds.every(allDone)) finish(S);
+        return;
+      }
       // suizo / suizo + corte
       if (S.phase === 'swiss') {
         if (!allDone(last)) return;
@@ -426,7 +442,7 @@
    *   1) puntos  2) duelos ganados  3) diferencia de partidas  4) partidas ganadas
    *   5) resultado entre los empatados (duelos ganados solo entre ellos)  6) orden de siembra. */
   function standings(state, opts) {
-    var S = state, phase = (opts && opts.phase) || (S.cfg.format === 'elim' ? 'elim' : S.cfg.format === 'rr' ? 'rr' : 'swiss');
+    var S = state, phase = (opts && opts.phase) || (S.cfg.format === 'elim' ? 'elim' : (S.cfg.format === 'rr' || S.cfg.format === 'rr_cut') ? 'rr' : 'swiss');
     var rows = {}, h2h = {};
     S.players.forEach(function (p) { rows[p.id] = emptyRow(p); });
     S.rounds.forEach(function (r) { if (r.phase !== phase) return; r.duels.forEach(function (d) {
@@ -460,8 +476,8 @@
   /* Posición final de todos. Con eliminatoria manda hasta dónde llegó cada uno; el resto va por la tabla previa. */
   function ranking(state) {
     var S = state, f = S.cfg.format;
-    var base = f === 'elim' ? S.players.map(emptyRow) : standings(S, { phase: f === 'rr' ? 'rr' : 'swiss' });
-    if (f === 'elim' || f === 'swiss_cut') {
+    var base = f === 'elim' ? S.players.map(emptyRow) : standings(S, { phase: (f === 'rr' || f === 'rr_cut') ? 'rr' : 'swiss' });
+    if (f === 'elim' || f === 'swiss_cut' || f === 'rr_cut') {
       var elimRounds = S.rounds.filter(function (r) { return r.phase === 'elim'; }), K = elimRounds.length, reach = {}, inElim = {};
       elimRounds.forEach(function (r, k) { r.duels.forEach(function (d) {
         [d.a, d.b].forEach(function (p) { if (p) { inElim[p] = 1; reach[p] = Math.max(reach[p] || 0, k + 1); } });
@@ -473,8 +489,23 @@
       var withElim = base.filter(function (r) { return inElim[r.id]; }), rest = base.filter(function (r) { return !inElim[r.id]; });
       withElim.sort(function (a, b) { return (reach[b.id] || 0) - (reach[a.id] || 0) || seedPos[a.id] - seedPos[b.id]; });
       base = withElim.concat(rest);
+      base.forEach(function (r) { r.reach = inElim[r.id] ? (reach[r.id] || 0) : 0; });          // hasta qué ronda de la eliminatoria llegó (0 = no jugó la eliminatoria)
     }
     return base.map(function (r, i) { var o = Object.assign({}, r); o.pos = i + 1; return o; });
+  }
+  /* Podio: { gold:[ids], silver:[ids], bronze:[ids] } (null si el torneo no terminó). Con eliminatoria no hay partido por el tercer puesto:
+   * los dos que perdieron la semifinal comparten el bronce. En tabla (suizo / todos contra todos) manda la tabla con sus desempates. */
+  function podium(state) {
+    if (!state || state.status !== 'finished') return null;
+    var r = ranking(state), out = { gold: [], silver: [], bronze: [] };
+    if (!r.length) return out;
+    out.gold = [r[0].id]; if (r.length > 1) out.silver = [r[1].id];
+    if (r.length > 2) {
+      var third = r[2];
+      if (third.reach > 0 && r[1].reach > third.reach && r[0].reach > third.reach) out.bronze = r.filter(function (x) { return x.reach === third.reach; }).map(function (x) { return x.id; });
+      else out.bronze = [third.id];
+    }
+    return out;
   }
 
   /* Quién abre la partida número k (0, 1, 2…) de un duelo: se alterna. */
@@ -486,7 +517,7 @@
   return {
     FORMATS: FORMATS, BEST_OF: BEST_OF, MAX_PLAYERS: MAX_PLAYERS, FORMAT_NAME: FORMAT_NAME,
     validate: validate, preview: preview, create: create, recordGames: recordGames, forfeit: forfeit, withdraw: withdraw, undo: undo,
-    standings: standings, ranking: ranking, pending: pending, opener: opener, nameOf: nameOf, shuffle: shuffle,
+    standings: standings, ranking: ranking, podium: podium, pending: pending, opener: opener, nameOf: nameOf, shuffle: shuffle,
     swissMaxMin: swissMaxMin
   };
 });

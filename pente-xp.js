@@ -12,7 +12,7 @@
   // Personalizar avatar: nivel desde el que se puede elegir cada pieza (lo que no figura es libre desde el nivel 1)
   var PART_LEVEL = {
     face: { enfadado: 3, sorprendido: 6, pensando: 10, seguro: 15 },
-    color: { dorado: 2, verde: 4, rojo: 8, gris: 14, negro: 19, morado: 60 },
+    color: { dorado: 2, verde: 4, rojo: 8, gris: 14, negro: 19, naranja: 6, turquesa: 11, rosa: 16, lima: 24, bordo: 29, morado: 35, plata: 45 },
     hair: { pinchudo: 5, raya: 7, melena: 9, gorro: 11, vincha: 13, despeinado: 15, cortina: 17, colita: 19, rodetes: 22, gorraAtras: 25 },
     hairColor: { pelirrojo: 3, gris: 9, rosa: 12, azul: 16, violeta: 21, verde: 26, blanco: 32 }
   };
