@@ -253,7 +253,7 @@ function createPenteServer(config) {
     if (room.recorded || room.opts.players === 4 || room.opts.variant !== 'classic' || room.opts.blitz || room.opts.bullet || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
     room.recorded = true;
     const day = todayKey(), gid = 'online:' + require('crypto').randomUUID(), w = winner === 1 || winner === 2 ? winner : 0;
-    [1, 2].forEach((k) => { grantXp(room.seats[k].uid, gid, XP.onlineGain(w === k), 'online', day, XP.ONLINE_DAILY_CAP); });
+    [1, 2].forEach((k) => { grantXp(room.seats[k].uid, gid, XP.onlineGain(w === k, day), 'online', day, XP.ONLINE_DAILY_CAP); });
     Promise.resolve(recordResult({ a: s1.uid, b: s2.uid, winner: winner === 1 || winner === 2 ? winner : 0, moves: room.moves.length, reason })).catch(() => {});
   }
   function bindAccount(seat, jwt) {
@@ -761,7 +761,7 @@ function createPenteServer(config) {
       const days = new Set(await dailyDb.history(g.uid, D.addDays(g.sp.date, -8)).catch(() => [])); days.add(g.sp.date);
       let streak = 0; for (let d = g.sp.date; days.has(d); d = D.addDays(d, -1)) streak++;
       const first = (await dailyDb.history(g.uid, '2000-01-01').catch(() => [g.sp.date])).filter((d) => d !== g.sp.date).length === 0;
-      await grantXp(g.uid, 'daily:' + g.sp.date, XP.dailyGain(!!(g.result && g.result.win), streak, first), 'daily', g.sp.date, 0);
+      await grantXp(g.uid, 'daily:' + g.sp.date, XP.dailyGain(!!(g.result && g.result.win), streak, first, g.sp.date), 'daily', g.sp.date, 0);
     } catch (e) { console.log('[xp] diario: ' + (e && e.message)); }
   }
   // Una jugada de la persona + la respuesta de la máquina. Devuelve { err } o { ai }.

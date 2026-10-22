@@ -6,13 +6,15 @@
   else root.PenteXP = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  var MAX_LEVEL = 50, MIN_MOVES = 10, CASUAL_CAP = 50, CAP = 10000000;
+  var MAX_LEVEL = 60, MIN_MOVES = 10, CASUAL_CAP = 50, CAP = 10000000;
   var TITLE_AT = [1, 4, 8, 13, 19, 26, 34, 43];                       // nivel desde el que rige cada título (xp.title.1 ... xp.title.8)
   var GEM_LEVEL = { oro: 6, neon: 9, coral: 12, obsidiana: 16, galaxia: 22 };                    // las 9 piedras de siempre son libres
   // Personalizar avatar: nivel desde el que se puede elegir cada pieza (lo que no figura es libre desde el nivel 1)
   var PART_LEVEL = {
     face: { enfadado: 3, sorprendido: 6, pensando: 10, seguro: 15 },
-    color: { dorado: 2, verde: 4, rojo: 8, gris: 14, negro: 19 }
+    color: { dorado: 2, verde: 4, rojo: 8, gris: 14, negro: 19, morado: 60 },
+    hair: { pinchudo: 5, raya: 7, melena: 9, gorro: 11, vincha: 13, despeinado: 15, cortina: 17, colita: 19, rodetes: 22, gorraAtras: 25 },
+    hairColor: { pelirrojo: 3, gris: 9, rosa: 12, azul: 16, violeta: 21, verde: 26, blanco: 32 }
   };
   var FIRSTS = { tutorial: 50, daily: 25 };                          // premio por única vez; 'mode:<modo>' vale 20
 
@@ -63,9 +65,15 @@
 
   /* ev: { k:'daily', win, moves, streak, date } | { k:'online'|'ai'|'local', win, draw, moves, mode } | { k:'first', id }
    * today: 'AAAA-MM-DD' (para el tope diario). Devuelve { xp (nuevo estado), gained, parts:[{k,n}], from, to, ups, unlocked:[{type,id,level}] } */
+  /* Evento: viernes y sábado se gana el doble de XP al jugar (partidas y desafío; los premios por única vez no se duplican). `today` es 'AAAA-MM-DD'. */
+  function eventMult(today) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today || ''); if (!m) return 1;
+    var wd = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay();   // 0 = domingo ... 5 = viernes, 6 = sábado
+    return wd === 5 || wd === 6 ? 2 : 1;
+  }
   function award(xp, ev, today) {
-    var s = clean(xp), parts = [], cas = false, ms = ev.moves || 0;
-    function add(k, n, casual) { if (n > 0) { parts.push({ k: k, n: n, casual: !!casual }); } }
+    var s = clean(xp), parts = [], cas = false, ms = ev.moves || 0, mult = eventMult(today);
+    function add(k, n, casual) { if (n > 0) { var once = k.indexOf('first:') === 0; parts.push({ k: k, n: once ? n : n * mult, casual: !!casual, x2: !once && mult > 1 }); } }
     function first(id) { if (validFirst(id) && s.f.indexOf(id) < 0) { s.f.push(id); add('first:' + id, id.indexOf('mode:') === 0 ? 20 : FIRSTS[id]); } }
     if (s.day !== today) { s.day = today; s.cas = 0; }
     if (ev.k === 'daily') {
@@ -79,7 +87,7 @@
         if (ev.k === 'online') { add('played', 20); if (ev.win) add('win', 20); }
         else {                                                        // contra la máquina o en el mismo aparato: con tope diario para que no se pueda farmear
           var room = Math.max(0, CASUAL_CAP - s.cas), played = 5, won = ev.k === 'ai' && ev.win ? 5 : 0, g1 = Math.min(played, room), g2 = Math.min(won, room - g1);
-          add('played', g1, true); add('win', g2, true); s.cas += g1 + g2;
+          add('played', g1, true); add('win', g2, true); s.cas += g1 + g2;                                      // el tope se cuenta en XP "base": en el evento el tope en pantalla también se duplica
         }
         if (ev.mode) first('mode:' + ev.mode);
       }
@@ -95,11 +103,11 @@
 
   /* Lo que reconoce el SERVIDOR (verificado): desafío diario terminado y partida online entre dos cuentas. Mismos números que award(). */
   var ONLINE_DAILY_CAP = 10;                                          // partidas online por día que dan XP verificado (evita que dos amigos se regalen XP)
-  function dailyGain(win, streak, firstTime) {
-    var n = 30 + (win ? 30 : 0), st = Math.max(0, Math.min(7, streak || 0)); if (st > 1) n += 5 * st; if (firstTime) n += FIRSTS.daily; return n;
+  function dailyGain(win, streak, firstTime, day) {
+    var n = 30 + (win ? 30 : 0), st = Math.max(0, Math.min(7, streak || 0)); if (st > 1) n += 5 * st; n *= eventMult(day); if (firstTime) n += FIRSTS.daily; return n;
   }
-  function onlineGain(win) { return 20 + (win ? 20 : 0); }
+  function onlineGain(win, day) { return (20 + (win ? 20 : 0)) * eventMult(day); }
 
   return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
-    clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award };
+    clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award, eventMult: eventMult };
 });

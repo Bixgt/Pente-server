@@ -136,7 +136,7 @@
     // 1) ¿gano ya? (en "fácil" a veces no lo ve)
     if (rng() < lv.seesWin) {
       var top = cands.slice(0, 40);
-      for (var i = 0; i < top.length; i++) { var r0 = P.playMove(state, top[i].x, top[i].y); if (r0.ok && r0.won && r0.state.winner === me) return { x: top[i].x, y: top[i].y }; }
+      for (var i = 0; i < top.length; i++) { var r0 = P.playMove(state, top[i].x, top[i].y); if (r0.ok && r0.won && r0.state.winner === me) return opts.rank ? { x: top[i].x, y: top[i].y, ranked: [{ x: top[i].x, y: top[i].y, v: WIN }] } : { x: top[i].x, y: top[i].y }; }
     }
 
     // 2b) todos contra todos: no hay búsqueda a varias jugadas (con tres rivales no sirve el alfa-beta): se elige entre las mejores por nota rápida + cómo queda el tablero
@@ -188,7 +188,7 @@
       return best === -Infinity ? 0 : best;
     }
 
-    var rootList = cands.slice(0, lv.width + 4), bestMove = rootList[0], maxDepth = lv.depth, vary = lv.vary || 0, doneRoot = null, doneBest = -Infinity;
+    var rootList = cands.slice(0, lv.width + 4), bestMove = rootList[0], maxDepth = lv.depth, vary = opts.vary !== undefined ? opts.vary : (lv.vary || 0), doneRoot = null, doneBest = -Infinity;
     for (var depth = 1; depth <= maxDepth; depth++) {
       var bestV = -Infinity, bestHere = null, alpha = -Infinity;
       for (var k = 0; k < rootList.length; k++) {
@@ -212,12 +212,16 @@
       if (bestV >= WIN - 50) break;                         // ya ve una victoria forzada
       if (budget && Date.now() - t0 > budget * 0.6) break;  // no alcanza el tiempo para otra capa
     }
-    if (vary && doneRoot && doneBest < WIN - 50 && doneBest > -WIN + 50) {      // sin victoria ni derrota a la vista: entre las casi mejores, una al azar
+    if (vary && !opts.rank && doneRoot && doneBest < WIN - 50 && doneBest > -WIN + 50) {      // sin victoria ni derrota a la vista: entre las casi mejores, una al azar
       var close = doneRoot.filter(function (e) { return e[1] >= doneBest - vary; });
       if (close.length > 1) bestMove = close[Math.floor(rng() * close.length)][0];
+    }
+    if (opts.rank) {                                       // para el entrenador: las jugadas con su valor, la mejor primero (las muy peores no tienen valor exacto: solo una cota)
+      var ranked = (doneRoot || [[bestMove, 0]]).map(function (e) { return { x: e[0].x, y: e[0].y, v: e[1] }; }).sort(function (a, b) { return b.v - a.v; });
+      return { x: ranked[0].x, y: ranked[0].y, ranked: ranked };
     }
     return { x: bestMove.x, y: bestMove.y };
   }
 
-  return { chooseMove: chooseMove, evaluate: evaluate, candidates: candidates, LEVELS: LEVELS };
+  return { WIN: WIN, chooseMove: chooseMove, evaluate: evaluate, candidates: candidates, LEVELS: LEVELS };
 });
