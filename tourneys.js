@@ -21,7 +21,7 @@ const MAX_TOURNEYS = 200, MAX_PLAYERS = 32, NAME_MAX = 40, MAX_VIEWERS = 100, CH
 const KEEP_MS = 45 * 24 * 3600e3, EVICT_MS = 30 * 60e3;      // en el almacén se conserva 45 días sin actividad; de la memoria se descarga a los 30 min sin nadie conectado
 
 module.exports = function makeTourneys(ctx) {
-  const { send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom, rooms, store } = ctx;
+  const { send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom, rooms, store, closeRoom } = ctx;
   const map = new Map(), loading = new Map(), safe = (p) => Promise.resolve(p).catch(() => null);
   let lastPrune = 0;
   const err = (ws, code, detail) => send(ws, { t: 'terror', code, detail });
@@ -190,7 +190,42 @@ module.exports = function makeTourneys(ctx) {
     const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
     if (T.status !== 'running') return err(ws, 'TN_NOT_RUNNING');
     try { T.S = PT.forfeit(T.S, String(msg.duel || ''), String(msg.winner || '')); } catch (e) { return err(ws, 'TN_BAD_DUEL', String(e.message || '').slice(0, 120)); }
-    delete T.rooms[String(msg.duel)]; T.ready[String(msg.duel)] = new Set(); if (T.S.status === 'finished') T.status = 'finished'; await commit(T);
+    dropGame(T, String(msg.duel)); if (T.S.status === 'finished') T.status = 'finished'; await commit(T);
+  }
+  /* Poderes del organizador sobre los duelos (todos solo con el torneo en curso). Cada cambio rearma lo que dependa de él y avisa a todos. */
+  function dropGame(T, duelId) {                                         // cierra la partida en juego de un duelo (si hay) y la desconecta del torneo
+    const code = T.rooms[duelId]; delete T.rooms[duelId]; if (T.ready[duelId]) T.ready[duelId] = new Set();
+    const room = code && rooms.get(code); if (room && closeRoom) closeRoom(room);
+    T.players.forEach((p) => { if (p.go && (!code || p.go.code === code)) p.go = null; });
+  }
+  function dropAll(T) { Object.keys(T.rooms).forEach((id) => dropGame(T, id)); T.ready = {}; T.players.forEach((p) => { p.go = null; }); }
+  const syncStatus = (T) => { T.status = T.S && T.S.status === 'finished' ? 'finished' : 'running'; };
+  async function onResult(ws, msg) {                                     // carga el resultado de un duelo a mano: games = quién ganó cada partida, en orden
+    const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
+    if (T.status !== 'running') return err(ws, 'TN_NOT_RUNNING');
+    const duel = String(msg.duel || ''), games = Array.isArray(msg.games) ? msg.games.slice(0, 7).map(String) : null;
+    if (!games || !games.length) return err(ws, 'BAD_REQUEST');
+    try { T.S = PT.recordGames(T.S, duel, games); } catch (e) { return err(ws, 'TN_BAD_DUEL', String(e.message || '').slice(0, 120)); }
+    dropGame(T, duel); syncStatus(T); await commit(T);
+  }
+  async function onUndo(ws, msg) {                                       // deshace la última acción cargada (resultado, victoria a mano o retiro)
+    const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
+    if (T.status !== 'running' && T.status !== 'finished') return err(ws, 'TN_NOT_RUNNING');
+    if (!T.S || !T.S.log || !T.S.log.length) return err(ws, 'TN_NOTHING');
+    try { T.S = PT.undo(T.S); } catch (e) { return err(ws, 'TN_BAD_DUEL', String(e.message || '').slice(0, 120)); }
+    dropAll(T); syncStatus(T); await commit(T);
+  }
+  async function onRewind(ws, msg) {                                     // corrige un resultado: reabre el duelo y se pierde lo que venía después
+    const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
+    if (T.status !== 'running' && T.status !== 'finished') return err(ws, 'TN_NOT_RUNNING');
+    try { T.S = PT.rewind(T.S, String(msg.duel || '')); } catch (e) { return err(ws, 'TN_BAD_DUEL', String(e.message || '').slice(0, 120)); }
+    dropAll(T); syncStatus(T); await commit(T);
+  }
+  async function onCancelGame(ws, msg) {                                 // cancela la partida en juego de un duelo (el duelo queda pendiente, con lo ya jugado)
+    const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
+    if (T.status !== 'running') return err(ws, 'TN_NOT_RUNNING');
+    const duel = String(msg.duel || ''); if (!T.rooms[duel]) return err(ws, 'TN_BAD_DUEL');
+    dropGame(T, duel); await commit(T);
   }
   function removeFrom(T, pid) {
     if (T.status === 'open') { T.players = T.players.filter((p) => p.pid !== pid); return true; }
@@ -250,7 +285,7 @@ module.exports = function makeTourneys(ctx) {
     T.players.forEach((x) => { if (x.ws) send(x.ws, o); }); T.viewers.forEach((w) => send(w, o)); saveChatSoon(T);
   }
 
-  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
+  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
   function handle(ws, msg) {
     const h = HANDLERS[msg.t]; if (!h) return false;
     Promise.resolve().then(() => h(ws, msg)).catch(() => err(ws, 'SERVER_ERROR'));

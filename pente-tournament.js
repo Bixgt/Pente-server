@@ -369,6 +369,15 @@
     if (last.t === 'games' && last.games.length > 1) log.push({ t: 'games', id: last.id, games: last.games.slice(0, -1) });
     return replay(state, log);
   }
+  /* Corregir un resultado: reabre ese duelo. Se rearma el torneo con todo lo anterior y se pierde lo que dependía de ese resultado (los cruces y resultados posteriores);
+   * los retiros hechos después se conservan. Un duelo resuelto solo por un retiro (sin resultado cargado) no se puede reabrir: hay que deshacer el retiro. */
+  function rewind(state, duelId) {
+    var log = (state.log || []), cut = -1, i;
+    for (i = 0; i < log.length; i++) if ((log[i].t === 'games' || log[i].t === 'forfeit') && log[i].id === duelId) { cut = i; break; }
+    if (cut < 0) throw new Error('Ese duelo no tiene un resultado cargado que se pueda corregir.');
+    var later = log.slice(cut + 1).filter(function (e) { return e.t === 'withdraw'; });
+    return replay(state, log.slice(0, cut).concat(later));
+  }
   function autoWalkover(S) {
     var changed = true;
     while (changed) {
@@ -516,7 +525,7 @@
 
   return {
     FORMATS: FORMATS, BEST_OF: BEST_OF, MAX_PLAYERS: MAX_PLAYERS, FORMAT_NAME: FORMAT_NAME,
-    validate: validate, preview: preview, create: create, recordGames: recordGames, forfeit: forfeit, withdraw: withdraw, undo: undo,
+    validate: validate, preview: preview, create: create, recordGames: recordGames, forfeit: forfeit, withdraw: withdraw, undo: undo, rewind: rewind,
     standings: standings, ranking: ranking, podium: podium, pending: pending, opener: opener, nameOf: nameOf, shuffle: shuffle,
     swissMaxMin: swissMaxMin
   };

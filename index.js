@@ -344,6 +344,13 @@ function createPenteServer(config) {
     rooms.delete(room.code);
     seatList(room).forEach((s) => { const p = room.seats[s]; if (p && p.ws) { send(p.ws, { t: 'roomClosed', why }); p.ws.room = null; p.ws.seat = 0; } });
   }
+  /* El organizador cancela o corrige una partida de torneo: se cierra la sala (los dos vuelven al torneo) y deja de contar para el duelo. */
+  function closeTourneyRoom(room) {
+    try { clockStop(room); } catch (e) { /* ya estaba parado */ }
+    room.tourney = null;
+    room.spectators.forEach((w) => { w.room = null; w.spectator = false; send(w, { t: 'roomClosed', why: 'tourney' }); }); room.spectators.clear();
+    closeRoomNow(room, 'tourney');
+  }
   function closeOwned(dev, except) { rooms.forEach((r) => { if (r !== except && r.owner === dev && isWaiting(r)) closeRoomNow(r, 'replaced'); }); }
   function onCloseRoom(ws, msg) {
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
@@ -387,7 +394,7 @@ function createPenteServer(config) {
     };
   }
   const tourneyStore = config.tourneyStore || (sbUrl && sbService ? sbTourneyStore() : memTourneyStore());
-  const tourneys = makeTourneys({ send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
+  const tourneys = makeTourneys({ closeRoom: closeTourneyRoom, send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
 
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
