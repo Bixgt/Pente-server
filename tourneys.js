@@ -8,7 +8,7 @@
  *   tjoin {code, name, jwt}      trejoin {code, token}      tleave      tclose (organizador)
  *   tinvite {to: uid de un amigo, jwt, avatar, country}  (organizador, mientras está abierto)
  *   tgame {game} (organizador, antes o durante: cambia las reglas de las partidas que falten; avisa con {t:'tgame', game})
- *   (tplay avisa al rival con {t:'tcall', duel, from}) tstart (organizador)   tcfg {cfg} (organizador, antes de empezar)   tplay {duel}   tunplay {duel}
+ *   (tplay avisa al rival con {t:'tcall', duel, from}) tstart (organizador)   tcfg {cfg} (organizador: antes de empezar, o ya empezado pero sin ninguna partida jugada → se rearma el cuadro; avisa con {t:'tcfg', cfg})   tplay {duel}   tunplay {duel}
  *   tforfeit {duel, winner} (organizador)                   twithdraw {pid} (uno mismo o el organizador)
  * Del servidor: tsnap (foto completa, a cada participante con lo suyo), terror {code}, tinvite, tinviteRes, tclosed.
  * Cuando los dos de un duelo tocan "Jugar", el servidor arma una sala con los dos sentados y le pone a cada uno en tsnap.go
@@ -150,8 +150,15 @@ module.exports = function makeTourneys(ctx) {
   }
   async function onCfg(ws, msg) {                                      // el organizador corrige el formato mientras se juntan los participantes (p. ej. aplicar una sugerencia)
     const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
-    if (T.status !== 'open') return err(ws, 'TN_STARTED');
-    T.cfg = cleanCfg(Object.assign({}, msg.cfg, { name: T.cfg.name })); await commit(T);
+    const noGames = T.status === 'running' && T.S && !Object.keys(T.rooms).length && T.S.rounds.every((r) => r.duels.every((d) => d.bye || !(d.games && d.games.length)));
+    if (T.status !== 'open' && !noGames) return err(ws, 'TN_STARTED');
+    const cfg = cleanCfg(Object.assign({}, msg.cfg, { name: T.cfg.name }));
+    if (T.status === 'open') { T.cfg = cfg; return commit(T); }
+    /* Ya arrancó pero todavía no se jugó ninguna partida: se puede cambiar el formato, el mínimo de duelos y el mejor de; se rearma el cuadro con los mismos participantes y orden. */
+    const wd = new Set(T.S.withdrawn || []);
+    let S; try { S = PT.create(cfg, T.S.players.filter((p) => !wd.has(p.id)).map((p) => ({ id: p.id, name: p.name }))); } catch (e) { return err(ws, 'TN_INVALID', String(e.message || '').slice(0, 200)); }
+    T.cfg = cfg; T.S = S; T.ready = {}; T.status = S.status === 'finished' ? 'finished' : 'running'; await commit(T);
+    T.players.forEach((p) => { if (p.ws && p.pid !== T.orgPid) send(p.ws, { t: 'tcfg', cfg: { format: cfg.format, bestOf: cfg.bestOf, minDuels: cfg.minDuels, cut: cfg.cut } }); });
   }
   /* El organizador cambia las reglas de las partidas con el torneo ya creado (antes o durante). Rige para las partidas que todavía no empezaron;
    * las que están en juego terminan con las reglas con las que arrancaron. El formato (eliminación, mejor de, etc.) sí queda fijo una vez que empieza. */
