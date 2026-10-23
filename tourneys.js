@@ -7,6 +7,7 @@
  *   tcreate {name, cfg:{format,bestOf,minDuels,cut}, game:{variant,blitz,bullet,tournamentRule,exactFive,size,timer}, pname, jwt, dev}
  *   tjoin {code, name, jwt}      trejoin {code, token}      tleave      tclose (organizador)
  *   tinvite {to: uid de un amigo, jwt, avatar, country}  (organizador, mientras está abierto)
+ *   tgame {game} (organizador, antes o durante: cambia las reglas de las partidas que falten; avisa con {t:'tgame', game})
  *   (tplay avisa al rival con {t:'tcall', duel, from}) tstart (organizador)   tcfg {cfg} (organizador, antes de empezar)   tplay {duel}   tunplay {duel}
  *   tforfeit {duel, winner} (organizador)                   twithdraw {pid} (uno mismo o el organizador)
  * Del servidor: tsnap (foto completa, a cada participante con lo suyo), terror {code}, tinvite, tinviteRes, tclosed.
@@ -152,6 +153,16 @@ module.exports = function makeTourneys(ctx) {
     if (T.status !== 'open') return err(ws, 'TN_STARTED');
     T.cfg = cleanCfg(Object.assign({}, msg.cfg, { name: T.cfg.name })); await commit(T);
   }
+  /* El organizador cambia las reglas de las partidas con el torneo ya creado (antes o durante). Rige para las partidas que todavía no empezaron;
+   * las que están en juego terminan con las reglas con las que arrancaron. El formato (eliminación, mejor de, etc.) sí queda fijo una vez que empieza. */
+  async function onGame(ws, msg) {
+    const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
+    if (T.status !== 'open' && T.status !== 'running') return err(ws, 'TN_STARTED');
+    const before = JSON.stringify(T.game); T.game = ctx.cleanOpts(Object.assign({}, msg.game, { players: 2, ffa: false }));
+    if (JSON.stringify(T.game) === before) return push(T);
+    await commit(T);
+    T.players.forEach((p) => { if (p.ws && p.pid !== T.orgPid) send(p.ws, { t: 'tgame', game: { size: T.game.size, variant: T.game.variant, blitz: !!T.game.blitz, bullet: !!T.game.bullet } }); });     // avisa a los demás
+  }
   async function onPlay(ws, msg) {
     const a = await auth(ws, msg); if (!a) return; const { T, p } = a;
     if (T.status !== 'running') return err(ws, 'TN_NOT_RUNNING');
@@ -286,7 +297,7 @@ module.exports = function makeTourneys(ctx) {
     T.players.forEach((x) => { if (x.ws) send(x.ws, o); }); T.viewers.forEach((w) => send(w, o)); saveChatSoon(T);
   }
 
-  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
+  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tgame: onGame, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
   function handle(ws, msg) {
     const h = HANDLERS[msg.t]; if (!h) return false;
     Promise.resolve().then(() => h(ws, msg)).catch(() => err(ws, 'SERVER_ERROR'));
