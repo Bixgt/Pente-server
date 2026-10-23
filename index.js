@@ -222,8 +222,19 @@ function createPenteServer(config) {
   function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.outs = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
   function noVotes(room) { const o = {}; seatList(room).forEach((s) => { o[s] = !!(room.seats[s] && room.seats[s].bot); }); return o; }   // los bots siempre aceptan la revancha
 
+  /* Marcador de la sala: partidas ganadas por cada ASIENTO (los asientos rotan en la revancha, por eso se cuenta por persona). Se reinicia si cambia el rival.
+   * En un torneo sale del duelo (todas las partidas del cruce). En 2 contra 2 no hay marcador. */
+  function scoreMap(room) {
+    if (room.opts.players === 4) return null;
+    if (room.tourney) return tourneys.duelScore(room);
+    const s1 = room.seats[1], s2 = room.seats[2]; if (!s1 || !s2) return { 1: 0, 2: 0 };
+    const p1 = pidOf(s1), p2 = pidOf(s2), key = [p1, p2].sort().join('|');
+    if (room.scoreKey !== key) { room.scoreKey = key; room.score = {}; }
+    return { 1: (room.score && room.score[p1]) || 0, 2: (room.score && room.score[p2]) || 0 };
+  }
   function snapshot(room, seat) {
     return {
+      score: scoreMap(room),
       t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, owner: !!(seat && room.seats[seat] && room.ownerToken && room.seats[seat].token === room.ownerToken), tourney: !!room.tourney, spectators: room.spectators.size,
       names: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].name : ''; }); return o; })(),
       avatars: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].avatar || '' : ''; }); return o; })(),
@@ -243,9 +254,11 @@ function createPenteServer(config) {
 
   function finish(room, winner, reason) {
     room.over = { winner, reason }; clockStop(room);
+    if (!room.tourney && room.opts.players !== 4 && (winner === 1 || winner === 2) && room.seats[winner]) { scoreMap(room); room.score = room.score || {}; const pw = pidOf(room.seats[winner]); room.score[pw] = (room.score[pw] || 0) + 1; }
     broadcast(room, { t: 'over', winner, reason, clock: clockInfo(room) });
     record(room, winner, reason);
     if (room.tourney) tourneys.gameOver(room, winner);
+    const sc = scoreMap(room); if (sc) broadcast(room, { t: 'score', score: sc });
   }
   // Solo cuenta si juegan dos cuentas distintas y verificadas, y la partida tuvo un mínimo de jugadas. Una vez por partida.
   function record(room, winner, reason) {
@@ -599,7 +612,7 @@ function createPenteServer(config) {
         names: seatList(room).map((s) => (room.seats[s] ? room.seats[s].name : '')), bots: Object.keys(botsOf(room)).length,
         variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet, ffa: !!room.opts.ffa,
         status: !isFull(room) ? 'waiting' : gameOverNow(room) ? 'over' : 'playing',
-        moves: room.moves.length, spectators: room.spectators.size, at: room.lastActivity
+        moves: room.moves.length, spectators: room.spectators.size, at: room.lastActivity, score: scoreMap(room)
       });
     });
     out.sort((a, b) => b.at - a.at);

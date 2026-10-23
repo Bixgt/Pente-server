@@ -302,5 +302,11 @@ module.exports = function makeTourneys(ctx) {
     if (now - lastPrune > 6 * 3600e3) { lastPrune = now; safe(store.prune(now - KEEP_MS)); }
   }
 
-  return { handle, onSocketClose, gameOver, sweep, map, canWatch };
+  /* Marcador de la serie de un duelo: partidas ganadas por cada asiento de esta sala (las anteriores del duelo + las que ya sumó el torneo). */
+  function duelScore(room) {
+    const tr = room.tourney, T = tr && map.get(tr.code), d = T && T.S && findDuel(T.S, tr.duelId), o = { 1: 0, 2: 0 };
+    if (d) (d.games || []).forEach((w) => { if (w === tr.pids[1]) o[1]++; else if (w === tr.pids[2]) o[2]++; });
+    return o;
+  }
+  return { handle, onSocketClose, gameOver, sweep, map, canWatch, duelScore };
 };
