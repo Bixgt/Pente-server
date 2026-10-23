@@ -7,7 +7,7 @@
  *   tcreate {name, cfg:{format,bestOf,minDuels,cut}, game:{variant,blitz,bullet,tournamentRule,exactFive,size,timer}, pname, jwt, dev}
  *   tjoin {code, name, jwt}      trejoin {code, token}      tleave      tclose (organizador)
  *   tinvite {to: uid de un amigo, jwt, avatar, country}  (organizador, mientras está abierto)
- *   tstart (organizador)   tcfg {cfg} (organizador, antes de empezar)   tplay {duel}   tunplay {duel}
+ *   (tplay avisa al rival con {t:'tcall', duel, from}) tstart (organizador)   tcfg {cfg} (organizador, antes de empezar)   tplay {duel}   tunplay {duel}
  *   tforfeit {duel, winner} (organizador)                   twithdraw {pid} (uno mismo o el organizador)
  * Del servidor: tsnap (foto completa, a cada participante con lo suyo), terror {code}, tinvite, tinviteRes, tclosed.
  * Cuando los dos de un duelo tocan "Jugar", el servidor arma una sala con los dos sentados y le pone a cada uno en tsnap.go
@@ -159,8 +159,9 @@ module.exports = function makeTourneys(ctx) {
     if (!d || d.status === 'done' || d.bye || !d.a || !d.b || (d.a !== p.pid && d.b !== p.pid)) return err(ws, 'TN_BAD_DUEL');
     if (T.rooms[d.id] && rooms.get(T.rooms[d.id]) && !rooms.get(T.rooms[d.id]).over) { push(T); return; }       // ya hay una partida en juego: se vuelve a mandar su acceso
     delete T.rooms[d.id];
-    const set = T.ready[d.id] || (T.ready[d.id] = new Set()); set.add(p.pid);
+    const set = T.ready[d.id] || (T.ready[d.id] = new Set()), fresh = !set.has(p.pid); set.add(p.pid);
     if (set.has(d.a) && set.has(d.b)) startGame(T, d);
+    else if (fresh) { const rv = byPid(T, d.a === p.pid ? d.b : d.a); if (rv && rv.ws) send(rv.ws, { t: 'tcall', duel: d.id, from: p.name, code: T.code }); }      // le avisa al rival que ya está listo
     push(T);
   }
   function startGame(T, d) {
