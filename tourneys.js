@@ -6,7 +6,8 @@
  * Mensajes del cliente (todos llevan code y, salvo tcreate/tjoin, el token de quien los manda):
  *   tcreate {name, cfg:{format,bestOf,minDuels,cut}, game:{variant,blitz,bullet,tournamentRule,exactFive,size,timer}, pname, jwt, dev}
  *   tjoin {code, name, jwt}      trejoin {code, token}      tleave      tclose (organizador)
- *   tinvite {to: uid de un amigo, jwt, avatar, country}  (organizador, mientras está abierto)
+ *   tinvite {to: uid de un amigo, jwt, avatar, country}  (organizador, o cualquier participante si inv.all; mientras está abierto)
+ *   tinvcfg {all, only}  (organizador, mientras está abierto): all = los participantes también pueden invitar; only = solo se entra con invitación (el código no sirve)
  *   tgame {game} (organizador, antes o durante: cambia las reglas de las partidas que falten; avisa con {t:'tgame', game})
  *   (tplay avisa al rival con {t:'tcall', duel, from}) tstart (organizador)   tcfg {cfg} (organizador: antes de empezar, o ya empezado pero sin ninguna partida jugada → se rearma el cuadro; avisa con {t:'tcfg', cfg})   tplay {duel}   tunplay {duel}
  *   tforfeit {duel, winner} (organizador)                   twithdraw {pid} (uno mismo o el organizador)
@@ -33,11 +34,11 @@ module.exports = function makeTourneys(ctx) {
 
   /* ---------- guardar / cargar ---------- */
   function pack(T) {          // lo que se guarda (sin conexiones, sin partidas en juego)
-    return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, seq: T.seq, orgPid: T.orgPid, S: T.S, created: T.created, last: T.last, chat: (T.chat || []).slice(-CHAT_KEEP),
+    return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, inv: T.inv, invited: T.invited, seq: T.seq, orgPid: T.orgPid, S: T.S, created: T.created, last: T.last, chat: (T.chat || []).slice(-CHAT_KEEP),
       players: T.players.map((p) => ({ pid: p.pid, name: p.name, uid: p.uid, token: p.token })) };
   }
   function hydrate(d) {
-    return { code: d.code, owner: d.owner || '', name: d.name, status: d.status, cfg: d.cfg, game: d.game, seq: d.seq || 0, orgPid: d.orgPid, S: d.S || null, created: d.created || Date.now(), last: d.last || Date.now(), touched: Date.now(),
+    return { code: d.code, owner: d.owner || '', name: d.name, status: d.status, cfg: d.cfg, game: d.game, inv: cleanInv(d.inv), invited: Array.isArray(d.invited) ? d.invited.slice(0, MAX_PLAYERS * 4) : [], seq: d.seq || 0, orgPid: d.orgPid, S: d.S || null, created: d.created || Date.now(), last: d.last || Date.now(), touched: Date.now(),
       players: (d.players || []).map((p) => ({ pid: p.pid, name: p.name, uid: p.uid || '', token: p.token, ws: null, go: null })), ready: {}, rooms: {}, note: '', viewers: new Set(), chat: Array.isArray(d.chat) ? d.chat.slice(-CHAT_KEEP) : [], chatSeq: Array.isArray(d.chat) && d.chat.length ? d.chat[d.chat.length - 1].n || d.chat.length : 0 };
   }
   function save(T) { T.last = Date.now(); return safe(store.put(T.code, { owner: T.owner, status: T.status, data: pack(T) })); }
@@ -55,12 +56,12 @@ module.exports = function makeTourneys(ctx) {
 
   function readyOf(T) { const o = {}; Object.keys(T.ready).forEach((k) => { if (T.ready[k].size) o[k] = [...T.ready[k]]; }); return o; }
   function watchOf(T) { const o = {}; Object.keys(T.rooms).forEach((id) => { const r = rooms.get(T.rooms[id]); if (r && !r.over) o[id] = r.code; }); return o; }      // duelo → sala en juego (para mirarla)
-  function canWatch(code, msg) { const T = map.get(codeOf(code)); return !!T && (T.players.some((x) => x.token === String((msg && msg.ttoken) || '')) || codeOf(msg && msg.tcode) === T.code); }      // se mira una partida del torneo con el token de un participante o, sin ser parte, con el código del torneo (el link)
+  function canWatch(code, msg) { const T = map.get(codeOf(code)); return !!T && (T.players.some((x) => x.token === String((msg && msg.ttoken) || '')) || (!T.inv.only && codeOf(msg && msg.tcode) === T.code)); }      // se mira una partida del torneo con el token de un participante o, sin ser parte, con el código del torneo (el link)
   function snap(T, p) {
     let S = null; if (T.S) { S = JSON.parse(JSON.stringify(T.S)); S.log = []; }
     const live = p && p.go && rooms.get(p.go.code) && !rooms.get(p.go.code).over ? p.go : null;
     return {
-      t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
+      t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, inv: T.inv, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
       players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid })),
       cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || '', chat: T.chat || [], viewers: T.viewers ? T.viewers.size : 0
     };
@@ -95,6 +96,7 @@ module.exports = function makeTourneys(ctx) {
       bestOf: PT.BEST_OF.includes(Number(c.bestOf)) ? Number(c.bestOf) : 3, minDuels: n >= 1 && n <= 63 ? n : 2, cut: [2, 4, 8, 16].includes(Number(c.cut)) ? Number(c.cut) : 4
     };
   }
+  const cleanInv = (v) => ({ all: !!(v && v.all), only: !!(v && v.only) });
   function addPlayer(T, ws, name, uid) {
     const low = name.toLowerCase();
     if (uid) { const same = T.players.find((x) => x.uid === uid); if (same) { bind(T, same, ws); return same; } }
@@ -113,7 +115,7 @@ module.exports = function makeTourneys(ctx) {
     const cfg = cleanCfg(Object.assign({}, msg.cfg, { name: msg.name != null ? msg.name : (msg.cfg || {}).name }));
     const uid = await safe(dailyUid(ws, msg.jwt));
     if (ws.readyState !== 1 || ws.tn) return;
-    const T = { code, owner: dev, name: cfg.name, status: 'open', cfg, game: ctx.cleanOpts(Object.assign({}, msg.game, { players: 2, ffa: false })), players: [], seq: 0, orgPid: '', S: null, ready: {}, rooms: {}, viewers: new Set(), chat: [], chatSeq: 0, created: Date.now(), last: Date.now(), touched: Date.now(), note: '' };
+    const T = { code, owner: dev, name: cfg.name, status: 'open', cfg, game: ctx.cleanOpts(Object.assign({}, msg.game, { players: 2, ffa: false })), inv: cleanInv(msg.inv), invited: [], players: [], seq: 0, orgPid: '', S: null, ready: {}, rooms: {}, viewers: new Set(), chat: [], chatSeq: 0, created: Date.now(), last: Date.now(), touched: Date.now(), note: '' };
     map.set(code, T);
     const p = addPlayer(T, ws, cleanName(msg.pname, 'Organizador'), uid); if (!p) { map.delete(code); return; }
     T.orgPid = p.pid;
@@ -129,6 +131,7 @@ module.exports = function makeTourneys(ctx) {
     if (ws.readyState !== 1) return;
     const known = uid && T.players.find((x) => x.uid === uid);        // la misma cuenta vuelve a entrar: es la misma persona (también con el torneo ya empezado)
     if (T.status !== 'open' && !known) return err(ws, 'TN_STARTED');
+    if (T.inv.only && !known && !(uid && T.invited.includes(uid))) return err(ws, 'TN_INVITE_ONLY');      // solo por invitación: el código no alcanza
     const fresh = !known, p = known ? (bind(T, known, ws), known) : addPlayer(T, ws, cleanName(msg.name, 'Jugador'), uid);
     if (!p) return;
     if (fresh) await save(T);
@@ -262,12 +265,18 @@ module.exports = function makeTourneys(ctx) {
     Object.keys(T.ready).forEach((k) => T.ready[k].delete(pid));
     await commit(T);
   }
+  async function onInvCfg(ws, msg) {                                   // el organizador decide quién puede invitar y si el torneo es solo por invitación
+    const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
+    if (T.status !== 'open') return err(ws, 'TN_STARTED');
+    T.inv = cleanInv(msg); await commit(T);
+  }
   async function onClose(ws, msg) { const a = await orgOnly(ws, msg); if (!a) return; await closeNow(a.T, 'owner'); }
 
   const AV_OK = /^[a-z][a-z0-9]{0,15}$|^c(\.[a-z]{3,12}){5}$/;
   async function onInvite(ws, msg) {
     const bad = (reason) => send(ws, { t: 'tinviteRes', ok: false, reason, to: String(msg.to || '') });
-    const a = await orgOnly(ws, msg); if (!a) return; const { T, p } = a;
+    const a = await auth(ws, msg); if (!a) return; const { T, p } = a;
+    if (p.pid !== T.orgPid && !T.inv.all) return err(ws, 'NOT_ORGANIZER');
     if (T.status !== 'open') return bad('started');
     const now = Date.now(); if (now - (ws.lastTInvite || 0) < 800) return bad('rate'); ws.lastTInvite = now;
     const to = String(msg.to || ''); if (!/^[0-9a-f-]{36}$/i.test(to)) return bad('bad');
@@ -280,6 +289,7 @@ module.exports = function makeTourneys(ctx) {
       const live = [...(presence.get(to) || [])].filter((w) => w.readyState === 1);
       if (!live.length) return bad('offline');
       const av = AV_OK.test(String(msg.avatar || '')) ? String(msg.avatar) : '', co = /^[A-Z]{2}$/.test(String(msg.country || '')) ? String(msg.country) : '';
+      if (!T.invited.includes(to)) { T.invited.push(to); if (T.invited.length > MAX_PLAYERS * 4) T.invited.shift(); await save(T); }
       live.forEach((w) => send(w, { t: 'tinvite', code: T.code, name: T.name, from: { name: p.name, avatar: av, country: co }, cfg: T.cfg, game: { size: T.game.size, variant: T.game.variant, blitz: !!T.game.blitz, bullet: !!T.game.bullet } }));
       send(ws, { t: 'tinviteRes', ok: true, to });
     } catch (e) { bad('error'); }
@@ -288,6 +298,7 @@ module.exports = function makeTourneys(ctx) {
   /* Ver el torneo sin participar (con el código / el link): solo lectura, y desde ahí se miran las partidas en juego. */
   async function onSpectateT(ws, msg) {
     const T = await load(msg.code); if (!T) return err(ws, 'TN_NOT_FOUND');
+    if (T.inv.only) return err(ws, 'TN_INVITE_ONLY');
     if (T.viewers.size >= MAX_VIEWERS && !T.viewers.has(ws)) return err(ws, 'TN_FULL');
     T.viewers.add(ws); ws.tv = T.code; T.touched = Date.now();
     send(ws, { t: 'tview', code: T.code, name: T.name }); send(ws, snap(T, null));
@@ -304,7 +315,7 @@ module.exports = function makeTourneys(ctx) {
     T.players.forEach((x) => { if (x.ws) send(x.ws, o); }); T.viewers.forEach((w) => send(w, o)); saveChatSoon(T);
   }
 
-  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tgame: onGame, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite };
+  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tgame: onGame, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite, tinvcfg: onInvCfg };
   function handle(ws, msg) {
     const h = HANDLERS[msg.t]; if (!h) return false;
     Promise.resolve().then(() => h(ws, msg)).catch(() => err(ws, 'SERVER_ERROR'));

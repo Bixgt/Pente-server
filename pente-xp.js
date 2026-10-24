@@ -86,7 +86,10 @@
     return best;
   }
   function boardLevel(id) { return BOARD_LEVEL[id] || 1; }
-  function boardOk(id, level) { return level >= boardLevel(id); }
+  /* Tableros que se abren en una fecha (hora de Argentina, UTC-3), además del nivel. Halloween: desde el 31/10/2026 a las 00:00. */
+  var DATE_LOCK = { halloween: Date.UTC(2026, 9, 31, 3, 0, 0) };
+  function boardOpensAt(id) { return DATE_LOCK[id] || 0; }
+  function boardOk(id, level, now) { return level >= boardLevel(id) && (now == null ? Date.now() : now) >= boardOpensAt(id); }
   function partLevel(kind, id) { return (PART_LEVEL[kind] && PART_LEVEL[kind][id]) || 1; }
   function partOk(kind, id, level) { return level >= partLevel(kind, id); }
   function partsAt(level) {                                          // piezas de personaje que se destraban justo en ese nivel
@@ -139,6 +142,6 @@
   }
   function onlineGain(win, day) { return (20 + (win ? 20 : 0)) * eventMult(day); }
 
-  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, BOARD_LEVEL: BOARD_LEVEL, applyLevels: applyLevels, cleanLevels: cleanLevels, levelsConfig: levelsConfig, defaultLevels: defaultLevels, boardLevel: boardLevel, boardOk: boardOk, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
+  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, BOARD_LEVEL: BOARD_LEVEL, boardOpensAt: boardOpensAt, DATE_LOCK: DATE_LOCK, applyLevels: applyLevels, cleanLevels: cleanLevels, levelsConfig: levelsConfig, defaultLevels: defaultLevels, boardLevel: boardLevel, boardOk: boardOk, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
     clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award, eventMult: eventMult };
 });
