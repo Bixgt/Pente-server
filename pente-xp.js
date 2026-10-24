@@ -9,6 +9,7 @@
   var MAX_LEVEL = 60, MIN_MOVES = 10, CASUAL_CAP = 50, CAP = 10000000;
   var TITLE_AT = [1, 4, 8, 13, 19, 26, 34, 43];                       // nivel desde el que rige cada título (xp.title.1 ... xp.title.8)
   var GEM_LEVEL = { oro: 6, neon: 9, coral: 12, obsidiana: 16, galaxia: 22 };                    // las 9 piedras de siempre son libres
+  var BOARD_LEVEL = { glow: 2, papel: 4, playa: 7, jardin: 10, halloween: 13, galaxia: 17 };       // tableros: Simple y Tradicional son libres
   // Personalizar avatar: nivel desde el que se puede elegir cada pieza (lo que no figura es libre desde el nivel 1)
   var PART_LEVEL = {
     face: { enfadado: 3, sorprendido: 6, pensando: 10, seguro: 15 },
@@ -17,6 +18,32 @@
     hairColor: { pelirrojo: 3, gris: 9, rosa: 12, azul: 16, violeta: 21, verde: 26, blanco: 32 }
   };
   var FIRSTS = { tutorial: 50, daily: 25 };                          // premio por única vez; 'mode:<modo>' vale 20
+
+  /* Niveles configurables desde el menú de administrador (se guardan en Supabase, tabla app_config, clave 'levels'):
+   * { boards: { id: nivel }, gems: { id: nivel }, parts: { tipo: { id: nivel } } }. Nivel 1 = libre. Lo que no figura queda con el valor de fábrica. */
+  var DEFAULTS = JSON.parse(JSON.stringify({ boards: BOARD_LEVEL, gems: GEM_LEVEL, parts: PART_LEVEL }));
+  function lvNum(v) { v = Math.floor(Number(v)); return isFinite(v) && v >= 1 ? Math.min(v, MAX_LEVEL) : 0; }
+  function levelsConfig() { return JSON.parse(JSON.stringify({ boards: BOARD_LEVEL, gems: GEM_LEVEL, parts: PART_LEVEL })); }
+  function defaultLevels() { return JSON.parse(JSON.stringify(DEFAULTS)); }
+  function cleanLevels(cfg) {
+    cfg = cfg && typeof cfg === 'object' ? cfg : {}; var o = { boards: {}, gems: {}, parts: {} };
+    ['boards', 'gems'].forEach(function (k) { var src = cfg[k] && typeof cfg[k] === 'object' ? cfg[k] : {}; Object.keys(src).slice(0, 60).forEach(function (id) { var v = lvNum(src[id]); if (/^[a-z0-9]{1,16}$/i.test(id) && v) o[k][id] = v; }); });
+    var ps = cfg.parts && typeof cfg.parts === 'object' ? cfg.parts : {};
+    Object.keys(ps).slice(0, 8).forEach(function (kd) { if (!/^[a-zA-Z]{1,12}$/.test(kd) || !ps[kd] || typeof ps[kd] !== 'object') return; o.parts[kd] = {}; Object.keys(ps[kd]).slice(0, 60).forEach(function (id) { var v = lvNum(ps[kd][id]); if (/^[a-zA-Z0-9]{1,16}$/.test(id) && v) o.parts[kd][id] = v; }); });
+    return o;
+  }
+  function reset(target, def, over) {                                  // vuelve a los valores de fábrica y encima pone lo configurado (cambia el objeto en el lugar: el resto del código lo comparte)
+    Object.keys(target).forEach(function (k) { delete target[k]; });
+    Object.keys(def).forEach(function (k) { target[k] = def[k]; });
+    Object.keys(over || {}).forEach(function (k) { target[k] = over[k]; });
+  }
+  function applyLevels(cfg) {
+    var c = cleanLevels(cfg);
+    reset(BOARD_LEVEL, DEFAULTS.boards, c.boards); reset(GEM_LEVEL, DEFAULTS.gems, c.gems);
+    Object.keys(DEFAULTS.parts).forEach(function (k) { reset(PART_LEVEL[k], DEFAULTS.parts[k], c.parts[k]); });
+    Object.keys(c.parts).forEach(function (k) { if (!PART_LEVEL[k]) PART_LEVEL[k] = {}, reset(PART_LEVEL[k], {}, c.parts[k]); });
+    return levelsConfig();
+  }
 
   function num(v) { v = Math.floor(Number(v)); return isFinite(v) && v > 0 ? Math.min(v, CAP) : 0; }
   function need(level) { return 90 + 10 * level; }                    // XP para pasar del nivel `level` al siguiente (100, 110, 120...)
@@ -48,14 +75,18 @@
   function unlocksAt(level) {                                         // premios que se destraban justo en ese nivel
     var out = [];
     Object.keys(GEM_LEVEL).forEach(function (id) { if (GEM_LEVEL[id] === level) out.push({ type: 'gem', id: id }); });
+    Object.keys(BOARD_LEVEL).forEach(function (id) { if (BOARD_LEVEL[id] === level) out.push({ type: 'board', id: id }); });
     return out;
   }
   function nextUnlock(level) {                                        // el próximo premio por destrabar (para mostrarlo en el perfil)
     var best = null;
     Object.keys(PART_LEVEL).forEach(function (k) { Object.keys(PART_LEVEL[k]).forEach(function (id) { var lv = PART_LEVEL[k][id]; if (lv > level && (!best || lv < best.level)) best = { type: 'part', kind: k, id: id, level: lv }; }); });
     Object.keys(GEM_LEVEL).forEach(function (id) { var lv = GEM_LEVEL[id]; if (lv > level && (!best || lv < best.level)) best = { type: 'gem', id: id, level: lv }; });
+    Object.keys(BOARD_LEVEL).forEach(function (id) { var lv = BOARD_LEVEL[id]; if (lv > level && (!best || lv < best.level)) best = { type: 'board', id: id, level: lv }; });
     return best;
   }
+  function boardLevel(id) { return BOARD_LEVEL[id] || 1; }
+  function boardOk(id, level) { return level >= boardLevel(id); }
   function partLevel(kind, id) { return (PART_LEVEL[kind] && PART_LEVEL[kind][id]) || 1; }
   function partOk(kind, id, level) { return level >= partLevel(kind, id); }
   function partsAt(level) {                                          // piezas de personaje que se destraban justo en ese nivel
@@ -108,6 +139,6 @@
   }
   function onlineGain(win, day) { return (20 + (win ? 20 : 0)) * eventMult(day); }
 
-  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
+  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, BOARD_LEVEL: BOARD_LEVEL, applyLevels: applyLevels, cleanLevels: cleanLevels, levelsConfig: levelsConfig, defaultLevels: defaultLevels, boardLevel: boardLevel, boardOk: boardOk, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
     clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award, eventMult: eventMult };
 });

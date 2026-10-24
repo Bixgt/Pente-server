@@ -700,6 +700,8 @@ function createPenteServer(config) {
       load: async (uid, day) => rows.get(uid + '|' + day) || null,
       save: async (row) => { rows.set(row.uid + '|' + row.day, Object.assign({}, rows.get(row.uid + '|' + row.day), row)); },
       day: async (day) => [...rows.values()].filter((r) => r.day === day && (r.finished || r.moves >= 1)),
+      setComment: async (uid, day, text) => { const r = rows.get(uid + '|' + day); if (r && !r.comment) r.comment = text; },
+      setHidden: async (uid, day, hide) => { const r = rows.get(uid + '|' + day); if (r) r.comment_hidden = !!hide; },
       history: async (uid, from) => [...rows.values()].filter((r) => r.uid === uid && (r.finished || r.moves >= 1) && r.day >= from).map((r) => r.day),
       names: async (uids) => { const o = {}; uids.forEach((u) => { const r = [...rows.values()].find((x) => x.uid === u && x.name); o[u] = { name: r ? r.name : 'Jugador', avatar: '' }; }); return o; },
     };
@@ -715,7 +717,15 @@ function createPenteServer(config) {
         if (!r.ok) throw new Error('sb ' + r.status);
       },
       history: async (uid, from) => (await get('daily_scores?uid=eq.' + q(uid) + '&or=(finished.eq.true,moves.gte.1)&day=gte.' + q(from) + '&select=day&limit=20')).map((r) => r.day),
-      day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason&limit=1000'),
+      day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason,comment,comment_hidden&limit=1000'),
+      setComment: async (uid, day, text) => {                      // una sola vez: solo si todavía no hay comentario (supabase/daily-comments.sql)
+        const r = await fetch(sbUrl + '/rest/v1/daily_scores?uid=eq.' + q(uid) + '&day=eq.' + q(day) + '&comment=is.null', { method: 'PATCH', headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }), body: JSON.stringify({ comment: text }) });
+        if (!r.ok) throw new Error('sb ' + r.status);
+      },
+      setHidden: async (uid, day, hide) => {
+        const r = await fetch(sbUrl + '/rest/v1/daily_scores?uid=eq.' + q(uid) + '&day=eq.' + q(day), { method: 'PATCH', headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }), body: JSON.stringify({ comment_hidden: !!hide }) });
+        if (!r.ok) throw new Error('sb ' + r.status);
+      },
       names: async (uids) => {
         const o = {}; if (!uids.length) return o;
         const a = await get('profiles?id=in.(' + uids.map(q).join(',') + ')&select=id,name,avatar,country:prefs->>country');
@@ -767,6 +777,7 @@ function createPenteServer(config) {
   function dailyView(sp, g) {
     const v = { t: 'daily', date: sp.date, n: sp.n, level: sp.level, size: sp.size, setup: sp.setup, status: !g ? 'new' : g.result ? 'done' : 'playing', moves: g ? g.moves : [], result: g && g.result || null };
     if (g && !g.result) v.elapsed = g.startedAt ? Date.now() - g.startedAt : 0;
+    if (g && g.result) v.comment = g.comment || '';
     return v;
   }
   function dailyFinish(g, win, reason) {
@@ -810,7 +821,7 @@ function createPenteServer(config) {
     return g.saving;
   }
   function dailyRestore(sp, uid, row) {                           // la máquina juega igual siempre: con las jugadas de la persona se reconstruye todo
-    const g = { sp, uid, state: D.startState(sp), moves: [], humanMoves: 0, startedAt: row.started_at ? Date.parse(row.started_at) : 0, result: null, name: row.name };
+    const g = { sp, uid, state: D.startState(sp), moves: [], humanMoves: 0, startedAt: row.started_at ? Date.parse(row.started_at) : 0, result: null, name: row.name, comment: row.comment || '' };
     for (const m of Array.isArray(row.human) ? row.human : []) { if (g.result || !Array.isArray(m) || dailyStep(g, m[0], m[1]).err) break; }
     if (row.finished) g.result = { win: !!row.win, draw: !!row.draw, reason: row.reason || 'game', moves: row.moves, ms: row.ms, captures: row.captures || 0, level: sp.level, date: sp.date, n: sp.n };
     return g;
@@ -873,7 +884,8 @@ function createPenteServer(config) {
     const dayRank = D.rankDay(byDay[today]), weekRank = D.rankWeek(byDay);
     const uids = [...new Set(dayRank.concat(weekRank).map((r) => r.uid))];
     const names = await dailyDb.names(uids).catch(() => ({})), xps = await Promise.resolve(xpStore.totals(uids)).catch(() => ({}));
-    const val = { today, from, dayRank, weekRank, names, xps };
+    const comments = {}, done = {}; (byDay[today] || []).forEach((r) => { if (r.finished) done[r.uid] = 1; if (r.comment) comments[r.uid] = { text: String(r.comment).slice(0, DAILY_COMMENT_MAX), hidden: !!r.comment_hidden }; });
+    const val = { today, from, dayRank, weekRank, names, xps, comments, done };
     boardCache.set(today, { val, until: Date.now() + BOARD_TTL_MS }); if (boardCache.size > 8) boardCache.clear();
     return val;
   }
@@ -881,10 +893,44 @@ function createPenteServer(config) {
     const uid = await dailyUid(ws, msg.jwt), today = todayKey();
     let b; try { b = await buildBoard(today); } catch (e) { return send(ws, { t: 'error', code: 'SERVER_ERROR' }); }
     const nm = (u) => (b.names[u] && b.names[u].name) || 'Jugador', av = (u) => (b.names[u] && b.names[u].avatar) || '', co = (u) => (b.names[u] && b.names[u].country) || '', xp = (u) => b.xps[u] || 0;
-    const dayRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), playing: !!r.playing, win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid });
+    const admin = !!uid && await isAdmin(uid), viewerDone = !!uid && !!b.done[uid];                // los comentarios los leen solo quienes ya terminaron el desafío de hoy
+    const dayRow = (r) => {
+      const o = { rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), playing: !!r.playing, win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid };
+      const c = b.comments[r.uid];
+      if (c && (viewerDone || admin) && (!c.hidden || admin || r.uid === uid)) { o.comment = c.text; if (c.hidden) o.hidden = true; }
+      if (c && admin) o.cid = r.uid;                                       // solo la administradora recibe el id, para poder ocultar
+      return o;
+    };
     const weekRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), points: r.points, wins: r.wins, played: r.played, moves: r.moves, ms: r.ms, me: r.uid === uid });
     const cut = (list, f) => { const top = list.slice(0, BOARD_TOP).map(f); const mine = list.findIndex((r) => r.uid === uid); return { rows: top, mine: mine >= BOARD_TOP ? f(list[mine]) : null, total: list.length }; };
-    send(ws, { t: 'dailyBoard', date: b.today, weekFrom: b.from, today: cut(b.dayRank, dayRow), week: cut(b.weekRank, weekRow) });
+    send(ws, { t: 'dailyBoard', date: b.today, weekFrom: b.from, today: cut(b.dayRank, dayRow), week: cut(b.weekRank, weekRow), commentsLocked: !viewerDone && !admin && Object.keys(b.comments).length > 0, admin });
+  }
+  /* Comentario del desafío: uno solo por cuenta y por día, solo después de terminarlo; lo leen quienes ya terminaron. La administradora (nombre "Bixgt") puede ocultarlos. */
+  const DAILY_COMMENT_MAX = 140;
+  const ADMIN_NAME = String(config.adminName || 'bixgt').toLowerCase();
+  async function isAdmin(uid) { try { const n = await dailyDb.names([uid]); return !!(n[uid] && String(n[uid].name).toLowerCase() === ADMIN_NAME); } catch (e) { return false; } }
+  function cleanDailyComment(s) {
+    const t = cleanChat(s).slice(0, DAILY_COMMENT_MAX);
+    if (!t || /https?:|www\.|\w\.(com|net|org|ar|io|me|ly)\b/i.test(t)) return '';        // sin links
+    return t;
+  }
+  async function onDailyComment(ws, msg) {
+    const sp = D.spec(todayKey()), uid = await dailyUid(ws, msg.jwt);
+    if (!uid) return send(ws, { t: 'error', code: 'NEED_ACCOUNT' });
+    const g = await dailyFind(uid, sp);
+    if (!g || !g.result) return send(ws, { t: 'error', code: 'NOT_DONE' });
+    if (g.comment) return send(ws, { t: 'error', code: 'ALREADY_COMMENTED' });
+    const text = cleanDailyComment(msg.text); if (!text) return send(ws, { t: 'error', code: 'BAD_COMMENT' });
+    g.comment = text;                                                   // se reserva ya (antes de esperar a la base) para que dos pedidos seguidos no cuenten los dos
+    try { await dailyDb.setComment(uid, sp.date, text); } catch (e) { g.comment = ''; console.log('[daily] comentario: ' + (e && e.message)); return send(ws, { t: 'error', code: 'SERVER_ERROR' }); }
+    boardCache.clear(); send(ws, { t: 'dailyCommentOk', text });
+  }
+  async function onDailyHide(ws, msg) {
+    const uid = await dailyUid(ws, msg.jwt);
+    if (!uid || !(await isAdmin(uid))) return send(ws, { t: 'error', code: 'FORBIDDEN' });
+    if (typeof msg.cid !== 'string' || !/^[0-9A-Za-z-]{20,40}$/.test(msg.cid)) return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+    try { await dailyDb.setHidden(msg.cid.toLowerCase(), todayKey(), !!msg.hide); } catch (e) { return send(ws, { t: 'error', code: 'SERVER_ERROR' }); }
+    boardCache.clear(); return onDailyBoard(ws, msg);
   }
 
   /* ---------- Conexiones ---------- */
@@ -926,6 +972,8 @@ function createPenteServer(config) {
         case 'dailyMove': return onDailyMove(ws, msg);
         case 'dailyResign': return onDailyResign(ws);
         case 'dailyBoard': return void onDailyBoard(ws, msg);
+        case 'dailyComment': return void onDailyComment(ws, msg);
+        case 'dailyHide': return void onDailyHide(ws, msg);
         case 'ping': return send(ws, { t: 'pong' });
         default: if (tourneys.handle(ws, msg)) return; return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       }
