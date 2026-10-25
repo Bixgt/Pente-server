@@ -55,7 +55,7 @@
     return {
       name: cleanName(cfg.name, 40) || 'Torneo de Pente',
       format: cfg.format, bestOf: Number(cfg.bestOf == null ? 3 : cfg.bestOf), minDuels: Math.floor(Number(cfg.minDuels == null ? 1 : cfg.minDuels)),
-      cut: Math.floor(Number(cfg.cut == null ? 4 : cfg.cut)),
+      cut: Math.floor(Number(cfg.cut == null ? 4 : cfg.cut)), third: !!cfg.third,      // third: partido por el 3.er puesto (antes de la final)
       points: { win: pts.win == null ? 3 : Number(pts.win), loss: pts.loss == null ? 0 : Number(pts.loss) }
     };
   }
@@ -114,8 +114,11 @@
     }
     if (n % 2 && c.format !== 'elim') warnings.push('Con cantidad impar, en cada ronda alguien descansa. El descanso da los puntos de una victoria pero no cuenta como duelo.');
     if (c.format === 'elim' && !isPow2(n)) warnings.push('Con ' + n + ' jugadores los mejores sembrados empiezan con descanso en la primera ronda.');
+    if (thirdOk(c, n) && plan) plan = Object.assign({}, plan, { duels: plan.duels + 1, rounds: plan.rounds + 1 });
     return { ok: true, errors: [], warnings: warnings, plan: plan, cfg: c, n: n };
   }
+  /* ¿Hay partido por el 3.er puesto? Hace falta una eliminatoria con al menos 4 jugadores reales en semifinales. */
+  function thirdOk(c, n) { return !!c.third && (c.format === 'elim' ? n >= 4 : (c.format === 'swiss_cut' || c.format === 'rr_cut') ? Math.min(c.cut, floorPow2(n)) >= 4 : false); }
 
   /* Alternativas válidas cuando la configuración pedida no se puede cumplir. */
   function suggest(cfg, players) {
@@ -158,6 +161,7 @@
     lines.push('En total: ' + p.duels + ' duelos en ' + p.rounds + ' rondas');
     promises.push('Todos jugarán al menos ' + p.min + ' duelo' + (p.min === 1 ? '' : 's') + '.');
     if (c.format === 'elim') promises.push('Quien pierda un duelo queda eliminado.');
+    if (thirdOk(v.cfg, v.n)) promises.push('Antes de la final se juega el partido por el tercer puesto.');
     promises.push('Un duelo es un enfrentamiento entre dos personas; puede tener varias partidas. Perder 0-3 cuenta como 1 duelo, no como 3.');
     promises.push('Quien empieza la primera partida de cada duelo se alterna para que nadie tenga siempre la ventaja de mover primero.');
     return { ok: true, title: c.name, lines: lines, promises: promises, warnings: v.warnings, plan: p };
@@ -270,7 +274,15 @@
       }
       rounds.push(next); cur = next;
     }
-    rounds.forEach(function (ds, k) { S.rounds.push({ n: base + k + 1, phase: 'elim', name: roundName(k + 1, K), duels: ds }); });
+    var third = null;                                      // partido por el 3.er puesto: lo juegan los dos que perdieron la semifinal y va ANTES de la final
+    if (S.cfg.third && K >= 2 && n >= 4) {
+      third = newDuel(S, base + K, 0, null, null); third.id = 'E3P'; third.third = true;
+      rounds[K - 2].forEach(function (sd, i) { sd.lnext = { id: 'E3P', slot: i === 0 ? 'a' : 'b' }; });
+    }
+    rounds.forEach(function (ds, k) {
+      if (third && k === K - 1) S.rounds.push({ n: base + K, phase: 'elim', name: 'Tercer puesto', third: true, duels: [third] });
+      S.rounds.push({ n: base + k + 1 + (third && k === K - 1 ? 1 : 0), phase: 'elim', name: roundName(k + 1, K), duels: ds });
+    });
     // los descansos de la primera ronda ya tienen ganador: se acomodan en la ronda siguiente
     first.forEach(function (d) { if (d.status === 'done') place(S, d); });
   }
@@ -303,6 +315,7 @@
   function finishDuel(S, d, winner, walkover) {
     d.winner = winner; d.status = 'done'; d.walkover = !!walkover;
     if (S.phase === 'elim' || d.id.charAt(0) === 'E') place(S, d);
+    if (d.lnext && !d.bye) { var nx = findDuel(S, d.lnext.id), loser = winner === d.a ? d.b : d.a; if (nx && loser) nx[d.lnext.slot] = loser; }      // el que pierde la semifinal va al partido por el 3.er puesto
   }
   /* games: lista con el id de quien ganó cada partida, en orden. Se puede ir cargando de a una (el duelo queda "en juego"). */
   function recordGames(state, duelId, games) {
@@ -313,6 +326,7 @@
     if (d.bye) throw new Error('Ese cruce es un descanso.');
     if (d.status === 'done') throw new Error('Ese duelo ya terminó.');
     if (!d.a || !d.b) throw new Error('Ese duelo todavía no tiene los dos jugadores.');
+    if (blocked(S, d)) throw new Error('Primero se juega el partido por el tercer puesto.');
     var n = need(S), sa = 0, sb = 0, list = [];
     (games || []).forEach(function (w) {
       if (sa >= n || sb >= n) throw new Error('Sobran partidas: el duelo ya estaba definido.');
@@ -338,6 +352,7 @@
     var S = clone(state), d = findDuel(S, duelId);
     if (!d || d.bye || d.status === 'done' || !d.a || !d.b) throw new Error('Ese duelo no se puede resolver así.');
     if (winnerId !== d.a && winnerId !== d.b) throw new Error('El ganador tiene que ser uno de los dos jugadores.');
+    if (blocked(S, d)) throw new Error('Primero se juega el partido por el tercer puesto.');
     finishDuel(S, d, winnerId, true); S.log.push({ t: 'forfeit', id: duelId, winner: winnerId });
     autoWalkover(S); advance(S);
     return S;
@@ -390,6 +405,12 @@
         finishDuel(S, d, win, true); changed = true;
       }); });
     }
+  }
+  /* Con partido por el 3.er puesto, la final espera a que ese se termine. */
+  function blocked(S, d) {
+    var t = findDuel(S, 'E3P'); if (!t || t.status === 'done' || d.id === 'E3P') return false;
+    var fin = null; S.rounds.forEach(function (r) { if (r.phase === 'elim') fin = r; });
+    return !!fin && fin.duels.some(function (x) { return x.id === d.id; });
   }
   function seedOf(S, id) { for (var i = 0; i < S.players.length; i++) if (S.players[i].id === id) return S.players[i].seed; return 999; }
 
@@ -489,6 +510,7 @@
     if (f === 'elim' || f === 'swiss_cut' || f === 'rr_cut') {
       var elimRounds = S.rounds.filter(function (r) { return r.phase === 'elim'; }), K = elimRounds.length, reach = {}, inElim = {};
       elimRounds.forEach(function (r, k) { r.duels.forEach(function (d) {
+        if (d.third) return;                                                  // el partido por el 3.er puesto no cuenta para «hasta dónde llegó»: se resuelve aparte
         [d.a, d.b].forEach(function (p) { if (p) { inElim[p] = 1; reach[p] = Math.max(reach[p] || 0, k + 1); } });
         if (d.status === 'done' && d.winner && !d.bye) reach[d.winner] = Math.max(reach[d.winner] || 0, k + 2);
         if (d.bye && d.winner) reach[d.winner] = Math.max(reach[d.winner] || 0, k + 2);
@@ -498,6 +520,12 @@
       var withElim = base.filter(function (r) { return inElim[r.id]; }), rest = base.filter(function (r) { return !inElim[r.id]; });
       withElim.sort(function (a, b) { return (reach[b.id] || 0) - (reach[a.id] || 0) || seedPos[a.id] - seedPos[b.id]; });
       base = withElim.concat(rest);
+      var t3 = findDuel(S, 'E3P');
+      if (t3 && t3.status === 'done' && t3.winner && t3.a && t3.b) {                      // 3.º y 4.º los define ese partido; el 1.º y el 2.º son los finalistas
+        var tw = t3.winner, tl = t3.winner === t3.a ? t3.b : t3.a, pick = function (id) { return base.filter(function (r) { return r.id === id; })[0]; };
+        var rw = pick(tw), rl = pick(tl);
+        if (rw && rl) { var others = base.filter(function (r) { return r !== rw && r !== rl; }); base = others.slice(0, 2).concat([rw, rl], others.slice(2)); }
+      }
       base.forEach(function (r) { r.reach = inElim[r.id] ? (reach[r.id] || 0) : 0; });          // hasta qué ronda de la eliminatoria llegó (0 = no jugó la eliminatoria)
     }
     return base.map(function (r, i) { var o = Object.assign({}, r); o.pos = i + 1; return o; });
@@ -509,6 +537,8 @@
     var r = ranking(state), out = { gold: [], silver: [], bronze: [] };
     if (!r.length) return out;
     out.gold = [r[0].id]; if (r.length > 1) out.silver = [r[1].id];
+    var t3 = findDuel(state, 'E3P');
+    if (r.length > 2 && t3 && t3.status === 'done' && t3.winner) { out.bronze = [t3.winner]; return out; }
     if (r.length > 2) {
       var third = r[2];
       if (third.reach > 0 && r[1].reach > third.reach && r[0].reach > third.reach) out.bronze = r.filter(function (x) { return x.reach === third.reach; }).map(function (x) { return x.id; });
@@ -520,13 +550,13 @@
   /* Quién abre la partida número k (0, 1, 2…) de un duelo: se alterna. */
   function opener(duel, k) { var first = duel.opens === 'b' ? duel.b : duel.a, second = first === duel.a ? duel.b : duel.a; return k % 2 === 0 ? first : second; }
   /* Próximos duelos que se pueden jugar ya (los dos jugadores definidos y sin terminar). */
-  function pending(state) { var out = []; state.rounds.forEach(function (r) { r.duels.forEach(function (d) { if (d.status !== 'done' && !d.bye && d.a && d.b) out.push({ round: r.name, duel: d }); }); }); return out; }
+  function pending(state) { var out = []; state.rounds.forEach(function (r) { r.duels.forEach(function (d) { if (d.status !== 'done' && !d.bye && d.a && d.b && !blocked(state, d)) out.push({ round: r.name, duel: d }); }); }); return out; }
   function nameOf(state, id) { for (var i = 0; i < state.players.length; i++) if (state.players[i].id === id) return state.players[i].name; return id == null ? '' : String(id); }
 
   return {
     FORMATS: FORMATS, BEST_OF: BEST_OF, MAX_PLAYERS: MAX_PLAYERS, FORMAT_NAME: FORMAT_NAME,
     validate: validate, preview: preview, create: create, recordGames: recordGames, forfeit: forfeit, withdraw: withdraw, undo: undo, rewind: rewind,
-    standings: standings, ranking: ranking, podium: podium, pending: pending, opener: opener, nameOf: nameOf, shuffle: shuffle,
+    blocked: blocked, standings: standings, ranking: ranking, podium: podium, pending: pending, opener: opener, nameOf: nameOf, shuffle: shuffle,
     swissMaxMin: swissMaxMin
   };
 });

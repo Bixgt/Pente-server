@@ -7,7 +7,7 @@
  *   tcreate {name, cfg:{format,bestOf,minDuels,cut}, game:{variant,blitz,bullet,tournamentRule,exactFive,size,timer}, pname, jwt, dev}
  *   tjoin {code, name, jwt}      trejoin {code, token}      tleave      tclose (organizador)
  *   tinvite {to: uid de un amigo, jwt, avatar, country}  (organizador, o cualquier participante si inv.all; mientras está abierto)
- *   tinvcfg {all, only}  (organizador, mientras está abierto): all = los participantes también pueden invitar; only = solo se entra con invitación (el código no sirve)
+ *   tinvcfg {all, only, acct}  (organizador, mientras está abierto): acct = solo con cuenta; all = los participantes también pueden invitar; only = solo se entra con invitación (el código no sirve)
  *   tgame {game} (organizador, antes o durante: cambia las reglas de las partidas que falten; avisa con {t:'tgame', game})
  *   (tplay avisa al rival con {t:'tcall', duel, from}) tstart (organizador)   tcfg {cfg} (organizador: antes de empezar, o ya empezado pero sin ninguna partida jugada → se rearma el cuadro; avisa con {t:'tcfg', cfg})   tplay {duel}   tunplay {duel}
  *   tforfeit {duel, winner} (organizador)                   twithdraw {pid} (uno mismo o el organizador)
@@ -93,10 +93,10 @@ module.exports = function makeTourneys(ctx) {
     const n = Math.floor(Number(c.minDuels));
     return {
       name: tname(c.name) || 'Torneo de Pente', format: PT.FORMATS.includes(c.format) ? c.format : 'swiss_cut',
-      bestOf: PT.BEST_OF.includes(Number(c.bestOf)) ? Number(c.bestOf) : 3, minDuels: n >= 1 && n <= 63 ? n : 2, cut: [2, 4, 8, 16].includes(Number(c.cut)) ? Number(c.cut) : 4
+      bestOf: PT.BEST_OF.includes(Number(c.bestOf)) ? Number(c.bestOf) : 3, minDuels: n >= 1 && n <= 63 ? n : 2, cut: [2, 4, 8, 16].includes(Number(c.cut)) ? Number(c.cut) : 4, third: !!c.third
     };
   }
-  const cleanInv = (v) => ({ all: !!(v && v.all), only: !!(v && v.only) });
+  const cleanInv = (v) => ({ all: !!(v && v.all), only: !!(v && v.only), acct: !!(v && v.acct) });      // acct = solo entran jugadores con cuenta
   function addPlayer(T, ws, name, uid) {
     const low = name.toLowerCase();
     if (uid) { const same = T.players.find((x) => x.uid === uid); if (same) { bind(T, same, ws); return same; } }
@@ -131,7 +131,8 @@ module.exports = function makeTourneys(ctx) {
     if (ws.readyState !== 1) return;
     const known = uid && T.players.find((x) => x.uid === uid);        // la misma cuenta vuelve a entrar: es la misma persona (también con el torneo ya empezado)
     if (T.status !== 'open' && !known) return err(ws, 'TN_STARTED');
-    if (T.inv.only && !known && !(uid && T.invited.includes(uid))) return err(ws, 'TN_INVITE_ONLY');      // solo por invitación: el código no alcanza
+    if (T.inv.only && !known && !(uid && T.invited.includes(uid))) return err(ws, 'TN_INVITE_ONLY');
+    if (T.inv.acct && !known && !uid) return err(ws, 'TN_NEED_ACCOUNT');                          // solo con cuenta: los invitados sin sesión no entran      // solo por invitación: el código no alcanza
     const fresh = !known, p = known ? (bind(T, known, ws), known) : addPlayer(T, ws, cleanName(msg.name, 'Jugador'), uid);
     if (!p) return;
     if (fresh) await save(T);
@@ -177,7 +178,7 @@ module.exports = function makeTourneys(ctx) {
     const a = await auth(ws, msg); if (!a) return; const { T, p } = a;
     if (T.status !== 'running') return err(ws, 'TN_NOT_RUNNING');
     const d = findDuel(T.S, String(msg.duel || ''));
-    if (!d || d.status === 'done' || d.bye || !d.a || !d.b || (d.a !== p.pid && d.b !== p.pid)) return err(ws, 'TN_BAD_DUEL');
+    if (!d || d.status === 'done' || d.bye || !d.a || !d.b || (d.a !== p.pid && d.b !== p.pid) || PT.blocked(T.S, d)) return err(ws, 'TN_BAD_DUEL');      // (la final espera al partido por el 3.er puesto)
     if (T.rooms[d.id] && rooms.get(T.rooms[d.id]) && !rooms.get(T.rooms[d.id]).over) { push(T); return; }       // ya hay una partida en juego: se vuelve a mandar su acceso
     delete T.rooms[d.id];
     const set = T.ready[d.id] || (T.ready[d.id] = new Set()), fresh = !set.has(p.pid); set.add(p.pid);

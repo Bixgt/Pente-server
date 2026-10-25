@@ -185,7 +185,8 @@ function createPenteServer(config) {
   function toSpectators(room, obj) { room.spectators.forEach((w) => send(w, obj)); }
   function broadcast(room, obj) { seatList(room).forEach((s) => room.seats[s] && send(room.seats[s].ws, obj)); toSpectators(room, obj); }
   function announcePresence(room) { broadcast(room, { t: 'presence', connected: connectedMap(room) }); }
-  function announceSpectators(room) { broadcast(room, { t: 'spectators', n: room.spectators.size }); }
+  const watchers = (room) => [...room.spectators].slice(0, 30).map((w) => ({ id: w.cid || '', name: w.name || 'Espectador' }));      // quién está mirando (para que jugadores y espectadores lo vean)
+  function announceSpectators(room) { broadcast(room, { t: 'spectators', n: room.spectators.size, list: watchers(room) }); }
   function touch(room) { room.lastActivity = Date.now(); }
 
   /* ---------- Reloj (lo manda el servidor: es el árbitro) ----------
@@ -235,7 +236,7 @@ function createPenteServer(config) {
   function snapshot(room, seat) {
     return {
       score: scoreMap(room),
-      t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, owner: !!(seat && room.seats[seat] && room.ownerToken && room.seats[seat].token === room.ownerToken), tourney: !!room.tourney, spectators: room.spectators.size,
+      t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, owner: !!(seat && room.seats[seat] && room.ownerToken && room.seats[seat].token === room.ownerToken), tourney: !!room.tourney, spectators: room.spectators.size, watchers: watchers(room),
       names: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].name : ''; }); return o; })(),
       avatars: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].avatar || '' : ''; }); return o; })(),
       pids: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? pidOf(room.seats[s]) : ''; }); return o; })(),
