@@ -101,6 +101,11 @@ function createPenteServer(config) {
     return fetch(sbUrl + '/rest/v1/rpc/record_online', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, svcHeaders()), body: JSON.stringify({ a: rec.a, b: rec.b, winner: rec.winner, moves: rec.moves, reason: rec.reason }) })
       .then((r) => (r.ok ? r.json() : 'error')).catch(() => 'error');
   });
+  const recordPairRpc = config.recordPair || ((rec) => {
+    if (!sbUrl || !sbService) return Promise.resolve('off');
+    return fetch(sbUrl + '/rest/v1/rpc/pair_record', { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, svcHeaders()), body: JSON.stringify({ a: rec.a, b: rec.b, winner: rec.winner, mode: rec.mode, moves: rec.moves }) })
+      .then((r) => (r.ok ? r.json() : 'error')).catch(() => 'error');
+  });
   const MIN_MOVES = config.minMoves != null ? config.minMoves : 10;   // partidas más cortas no cuentan (evita regalar victorias)
 
   /* Entrar con nombre + contraseña. El servidor busca el email de esa cuenta (el navegador nunca lo ve), pide la sesión a Supabase
@@ -257,7 +262,7 @@ function createPenteServer(config) {
     room.over = { winner, reason }; clockStop(room);
     if (!room.tourney && room.opts.players !== 4 && (winner === 1 || winner === 2) && room.seats[winner]) { scoreMap(room); room.score = room.score || {}; const pw = pidOf(room.seats[winner]); room.score[pw] = (room.score[pw] || 0) + 1; }
     broadcast(room, { t: 'over', winner, reason, clock: clockInfo(room) });
-    record(room, winner, reason);
+    record(room, winner, reason); recordPair(room, winner);
     if (room.tourney) tourneys.gameOver(room, winner);
     const sc = scoreMap(room); if (sc) broadcast(room, { t: 'score', score: sc });
   }
@@ -269,6 +274,14 @@ function createPenteServer(config) {
     const day = todayKey(), gid = 'online:' + require('crypto').randomUUID(), w = winner === 1 || winner === 2 ? winner : 0;
     [1, 2].forEach((k) => { grantXp(room.seats[k].uid, gid, XP.onlineGain(w === k, day), 'online', day, XP.ONLINE_DAILY_CAP); });
     Promise.resolve(recordResult({ a: s1.uid, b: s2.uid, winner: winner === 1 || winner === 2 ? winner : 0, moves: room.moves.length, reason })).catch(() => {});
+  }
+  // Cara a cara entre dos cuentas (supabase/h2h.sql): cuenta cualquier modo de 2 jugadores, para mostrar «cómo te va con tal persona» en su perfil.
+  function recordPair(room, winner) {
+    const s1 = room.seats[1], s2 = room.seats[2];
+    if (room.pairRecorded || room.opts.players === 4 || room.opts.ffa || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
+    room.pairRecorded = true;
+    const v = room.opts.variant, mode = room.opts.bullet ? 'bullet' : room.opts.blitz ? 'blitz' : v === 'gomoku' || v === 'triples' ? v : 'classic';
+    Promise.resolve(recordPairRpc({ a: s1.uid, b: s2.uid, winner: winner === 1 || winner === 2 ? winner : 0, mode, moves: room.moves.length })).catch(() => {});
   }
   function bindAccount(seat, jwt) {
     if (!jwt || typeof jwt !== 'string' || jwt.length > 4000) return;
