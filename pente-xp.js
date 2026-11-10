@@ -65,7 +65,7 @@
   }
   function merge(local, base, remote) {                               // como los contadores: lo nuevo de la nube + lo que ESTE aparato sumó desde la última sincronización
     var l = clean(local), b = clean(base), r = clean(remote), o = {};
-    o.t = num(r.t + Math.max(0, l.t - b.t));
+    o.t = num(Math.max(r.t + Math.max(0, l.t - b.t), l.t));       // nunca por debajo de lo que este aparato ya tiene: una copia vieja en la nube no te saca XP
     o.f = clean({ f: r.f.concat(l.f) }).f;
     var ld = l.day, rd = r.day;
     if (ld && ld >= rd) { o.day = ld; o.cas = ld === rd ? Math.max(l.cas, r.cas) : l.cas; } else { o.day = rd; o.cas = r.cas; }
