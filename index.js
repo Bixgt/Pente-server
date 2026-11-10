@@ -349,6 +349,11 @@ function createPenteServer(config) {
       send(ws, { t: 'seekRes', ok: true, n });
     }).catch(() => bad('error'));
   }
+  /* ¿Siguen disponibles estas salas? (para la casilla de notificaciones): existen, esperan rival y no están reservadas para otra cuenta. */
+  function onChk(ws, msg) {
+    const codes = (Array.isArray(msg.codes) ? msg.codes : []).slice(0, 30).map((c) => String(c || '').toUpperCase().trim());
+    send(ws, { t: 'chkRes', open: codes.filter((c) => { const r = rooms.get(c); return !!r && isWaiting(r) && (!r.reserved || r.reserved === ws.suid); }) });
+  }
   function onInviteNo(ws, msg) {
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room || !ws.suid || room.reserved !== ws.suid) return;
@@ -968,6 +973,7 @@ function createPenteServer(config) {
         case 'hi': return onHi(ws, msg);
         case 'invite': return onInvite(ws, msg);
         case 'inviteNo': return onInviteNo(ws, msg);
+        case 'chk': return onChk(ws, msg);
         case 'seek': return onSeek(ws, msg);
         case 'rejoin': lobbyLeave(ws); return onRejoin(ws, msg);
         case 'closeRoom': return onCloseRoom(ws, msg);
