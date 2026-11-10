@@ -244,6 +244,7 @@ function createPenteServer(config) {
       t: 'sync', code: room.code, you: seat, opts: room.opts, public: room.public, owner: !!(seat && room.seats[seat] && room.ownerToken && room.seats[seat].token === room.ownerToken), tourney: !!room.tourney, spectators: room.spectators.size, watchers: watchers(room),
       names: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].name : ''; }); return o; })(),
       avatars: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].avatar || '' : ''; }); return o; })(),
+      titles: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].title || '' : ''; }); return o; })(),
       pids: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? pidOf(room.seats[s]) : ''; }); return o; })(),
       connected: connectedMap(room), bots: botsOf(room), moves: room.moves, outs: room.outs,
       over: room.over, rematch: room.rematch, clock: clockInfo(room),
@@ -310,6 +311,7 @@ function createPenteServer(config) {
     });
   }
   const AV_OK = /^[a-z][a-z0-9]{0,15}$|^c(\.[a-z]{3,12}){5}$/;
+  const cleanTi = (a) => (/^[a-z]{1,3}\d{1,2}$/.test(String(a || '')) ? String(a) : '');
   const cleanAv = (a) => (AV_OK.test(String(a || '')) ? String(a) : '');
   let pidN = 0;
   const pidOf = (seat) => { if (!seat.pid) seat.pid = 'u' + (++pidN); return seat.pid; };       // identidad estable de cada persona en la sala: los asientos rotan en la revancha, esta no
@@ -433,7 +435,7 @@ function createPenteServer(config) {
     const room = { code, owner: dev, emptySince: 0, opts, public: o.public === true, reserved: o.hold === true ? '*' : '',  spectators: new Set(), seats: { 1: null, 2: null, 3: null, 4: null }, game: null, moves: [], over: null, rematch: null, lastActivity: Date.now(), chat: [], chatSeq: 0, specSeq: 0 };
     freshGame(room);
     const token = newToken();
-    room.ownerToken = token; room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0, uid: '', avatar: cleanAv(msg.avatar) }; bindAccount(room.seats[1], msg.jwt);
+    room.ownerToken = token; room.seats[1] = { name: cleanName(msg.name, 'Jugador 1'), token, ws: null, leftAt: 0, uid: '', avatar: cleanAv(msg.avatar), title: cleanTi(msg.title) }; bindAccount(room.seats[1], msg.jwt);
     rooms.set(code, room);
     attach(ws, room, 1);
     send(ws, { t: 'joined', code, token, you: 1 });
@@ -447,7 +449,7 @@ function createPenteServer(config) {
     const seat = seatList(room).find((s) => !room.seats[s]);
     if (!seat) return send(ws, { t: 'error', code: 'ROOM_FULL' });
     const token = newToken();
-    room.seats[seat] = { name: cleanName(msg.name, 'Jugador ' + seat), token, ws: null, leftAt: 0, uid: '', avatar: cleanAv(msg.avatar) }; bindAccount(room.seats[seat], msg.jwt);
+    room.seats[seat] = { name: cleanName(msg.name, 'Jugador ' + seat), token, ws: null, leftAt: 0, uid: '', avatar: cleanAv(msg.avatar), title: cleanTi(msg.title) }; bindAccount(room.seats[seat], msg.jwt);
     const jdev = cleanDev(msg.dev); if (jdev) closeOwned(jdev, room);          // si se une a otra sala, la suya en espera se cierra
     attach(ws, room, seat); touch(room);
     if (isFull(room)) clockStart(room);                // ya están todos: corre el reloj del primero
@@ -477,7 +479,7 @@ function createPenteServer(config) {
     if (!seat) return send(ws, { t: 'error', code: 'BAD_TOKEN' });
     const p = room.seats[seat];
     if (p.ws && p.ws !== ws) { try { p.ws.close(4000, 'replaced'); } catch (e) {} }   // la sesión nueva reemplaza a la vieja
-    if (!p.avatar) p.avatar = cleanAv(msg.avatar);          // salas de torneo: el avatar llega cuando entra
+    if (!p.avatar) p.avatar = cleanAv(msg.avatar); if (!p.title) p.title = cleanTi(msg.title);          // salas de torneo: el avatar llega cuando entra
     attach(ws, room, seat); touch(room);
     send(ws, { t: 'joined', code: room.code, token: p.token, you: seat });
     send(ws, snapshot(room, seat)); sendChatLog(ws, room);
