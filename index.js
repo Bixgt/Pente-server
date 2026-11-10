@@ -225,7 +225,7 @@ function createPenteServer(config) {
     return { on: true, started: !!c.started, total: roomTotal(room), turnMs: tm, blitz: !!(room.opts.blitz || room.opts.bullet), bullet: !!room.opts.bullet, rem, current: over ? 0 : c.current, turnLeft: !tm ? 0 : over ? tm : Math.max(0, tm - used) };
   }
 
-  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.outs = []; room.recorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
+  function freshGame(room) { room.game = P.createGame(room.opts); room.moves = []; room.outs = []; room.recorded = false; room.pairRecorded = false; room.over = null; room.rematch = noVotes(room); clockStop(room); room.clock = null; }
   function noVotes(room) { const o = {}; seatList(room).forEach((s) => { o[s] = !!(room.seats[s] && room.seats[s].bot); }); return o; }   // los bots siempre aceptan la revancha
 
   /* Marcador de la sala: partidas ganadas por cada ASIENTO (los asientos rotan en la revancha, por eso se cuenta por persona). Se reinicia si cambia el rival.
