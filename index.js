@@ -273,7 +273,7 @@ function createPenteServer(config) {
     if (room.recorded || room.opts.players === 4 || room.opts.variant !== 'classic' || room.opts.blitz || room.opts.bullet || !s1 || !s2 || !s1.uid || !s2.uid || s1.uid === s2.uid || room.moves.length < MIN_MOVES) return;
     room.recorded = true;
     const day = todayKey(), gid = 'online:' + require('crypto').randomUUID(), w = winner === 1 || winner === 2 ? winner : 0;
-    [1, 2].forEach((k) => { grantXp(room.seats[k].uid, gid, XP.onlineGain(w === k, day), 'online', day, XP.ONLINE_DAILY_CAP); });
+    if (room.moves.length >= XP.ONLINE_MIN_MOVES) [1, 2].forEach((k) => { grantXp(room.seats[k].uid, gid, XP.onlineGain(w === k, day), 'online', day, XP.ONLINE_DAILY_CAP); });
     Promise.resolve(recordResult({ a: s1.uid, b: s2.uid, winner: winner === 1 || winner === 2 ? winner : 0, moves: room.moves.length, reason })).catch(() => {});
   }
   // Cara a cara entre dos cuentas (supabase/h2h.sql): cuenta cualquier modo de 2 jugadores, para mostrar «cómo te va con tal persona» en su perfil.

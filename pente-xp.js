@@ -6,7 +6,7 @@
   else root.PenteXP = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  var MAX_LEVEL = 60, MIN_MOVES = 10, CASUAL_CAP = 50, CAP = 10000000;
+  var MAX_LEVEL = 60, MIN_MOVES = 10, CASUAL_CAP = 180, CAP = 10000000;
   var TITLE_AT = [1, 4, 8, 13, 19, 26, 34, 43];                       // nivel desde el que rige cada título (xp.title.1 ... xp.title.8)
   var GEM_LEVEL = { oro: 6, neon: 9, coral: 12, obsidiana: 16, galaxia: 22 };                    // las 9 piedras de siempre son libres
   var BOARD_LEVEL = { glow: 2, papel: 4, playa: 7, jardin: 10, halloween: 13, galaxia: 17 };       // tableros: Simple y Tradicional son libres
@@ -46,6 +46,9 @@
   }
 
   function num(v) { v = Math.floor(Number(v)); return isFinite(v) && v > 0 ? Math.min(v, CAP) : 0; }
+  var ONLINE_MIN_MOVES = 20;                                          // una partida online da XP solo si tuvo al menos 20 jugadas (evita regalarse XP con partidas relámpago)
+  var AI_CAP = { beginner: 14, easy: 32, medium: 63, hard: 117, goody: 180 };                 // lo máximo que se puede sumar por día con cada nivel de la máquina; entre todos los niveles el tope del día es CASUAL_CAP (180)
+  var AI_XP = { beginner: [2, 1], easy: [4, 3], medium: [8, 6], hard: [14, 12], goody: [20, 20] };   // [por jugar, extra por ganar] según el nivel de la máquina
   function need(level) { return 90 + 10 * level; }                    // XP para pasar del nivel `level` al siguiente (100, 110, 120...)
   function cumulative(level) { var s = 0; for (var l = 1; l < level; l++) s += need(l); return s; }   // XP total con la que se llega a ese nivel
   function levelOf(total) {
@@ -61,14 +64,16 @@
     x = x && typeof x === 'object' ? x : {};
     var f = Array.isArray(x.f) ? x.f.filter(validFirst) : [], seen = {};
     f = f.filter(function (k) { if (seen[k]) return false; seen[k] = 1; return true; }).sort().slice(0, 40);
-    return { t: num(x.t), f: f, day: validDay(x.day), cas: Math.min(num(x.cas), CASUAL_CAP), dd: validDay(x.dd) };
+    var cl = {}, xc = x.cl && typeof x.cl === 'object' ? x.cl : {}; Object.keys(AI_CAP).forEach(function (k) { var n = Math.min(num(xc[k]), AI_CAP[k]); if (n) cl[k] = n; });
+    return { t: num(x.t), f: f, day: validDay(x.day), cas: Math.min(num(x.cas), CASUAL_CAP), cl: cl, on: Math.min(num(x.on), ONLINE_DAILY_CAP), dd: validDay(x.dd) };
   }
   function merge(local, base, remote) {                               // como los contadores: lo nuevo de la nube + lo que ESTE aparato sumó desde la última sincronización
     var l = clean(local), b = clean(base), r = clean(remote), o = {};
     o.t = num(Math.max(r.t + Math.max(0, l.t - b.t), l.t));       // nunca por debajo de lo que este aparato ya tiene: una copia vieja en la nube no te saca XP
     o.f = clean({ f: r.f.concat(l.f) }).f;
     var ld = l.day, rd = r.day;
-    if (ld && ld >= rd) { o.day = ld; o.cas = ld === rd ? Math.max(l.cas, r.cas) : l.cas; } else { o.day = rd; o.cas = r.cas; }
+    function mx(a, c) { var m = {}; Object.keys(AI_CAP).forEach(function (k) { var n = Math.max(a[k] || 0, c[k] || 0); if (n) m[k] = n; }); return m; }
+    if (ld && ld >= rd) { o.day = ld; o.cas = ld === rd ? Math.max(l.cas, r.cas) : l.cas; o.cl = ld === rd ? mx(l.cl, r.cl) : l.cl; o.on = ld === rd ? Math.max(l.on, r.on) : l.on; } else { o.day = rd; o.cas = r.cas; o.cl = r.cl; o.on = r.on; }
     o.dd = l.dd > r.dd ? l.dd : r.dd;
     return clean(o);
   }
@@ -109,7 +114,7 @@
     var s = clean(xp), parts = [], cas = false, ms = ev.moves || 0, mult = eventMult(today);
     function add(k, n, casual) { if (n > 0) { var once = k.indexOf('first:') === 0; parts.push({ k: k, n: once ? n : n * mult, casual: !!casual, x2: !once && mult > 1 }); } }
     function first(id) { if (validFirst(id) && s.f.indexOf(id) < 0) { s.f.push(id); add('first:' + id, id.indexOf('mode:') === 0 ? 20 : FIRSTS[id]); } }
-    if (s.day !== today) { s.day = today; s.cas = 0; }
+    if (s.day !== today) { s.day = today; s.cas = 0; s.cl = {}; s.on = 0; }
     if (ev.k === 'daily') {
       if (s.dd !== ev.date && ms >= 3) {
         s.dd = ev.date; add('daily', 30); if (ev.win) add('win', 30);
@@ -118,12 +123,12 @@
       }
     } else if (ev.k === 'online' || ev.k === 'ai' || ev.k === 'local') {
       if (ms >= MIN_MOVES) {
-        if (ev.k === 'online') { add('played', 20); if (ev.win) add('win', 20); }
-        else {                                                        // contra la máquina o en el mismo aparato: con tope diario para que no se pueda farmear
-          var room = Math.max(0, CASUAL_CAP - s.cas), played = 5, won = ev.k === 'ai' && ev.win ? 5 : 0, g1 = Math.min(played, room), g2 = Math.min(won, room - g1);
-          add('played', g1, true); add('win', g2, true); s.cas += g1 + g2;                                      // el tope se cuenta en XP "base": en el evento el tope en pantalla también se duplica
+        if (ev.k === 'online') { if (ms >= ONLINE_MIN_MOVES && s.on < ONLINE_DAILY_CAP) { s.on++; add('played', 20); if (ev.win) add('win', 20); } }      // máximo 5 partidas online por día con XP
+        else if (ev.k === 'ai') {                                     // contra la máquina: la ganancia depende de su nivel, con tope diario para que no se pueda farmear (en el mismo aparato contra un amigo no se gana XP)
+          var lk = AI_CAP[ev.level] ? ev.level : 'medium', lv = AI_XP[lk], room = Math.max(0, Math.min(AI_CAP[lk] - (s.cl[lk] || 0), CASUAL_CAP - s.cas)), played = lv[0], won = ev.win ? lv[1] : 0, g1 = Math.min(played, room), g2 = Math.min(won, room - g1);
+          add('played', g1, true); add('win', g2, true); s.cl[lk] = (s.cl[lk] || 0) + g1 + g2; s.cas += g1 + g2;                                      // el tope se cuenta en XP "base": en el evento el tope en pantalla también se duplica
         }
-        if (ev.mode) first('mode:' + ev.mode);
+        if (ev.mode && ev.k !== 'local') first('mode:' + ev.mode);
       }
     } else if (ev.k === 'first') first(ev.id);
     var gained = parts.reduce(function (a, p) { return a + p.n; }, 0), from = levelOf(s.t), t1 = num(s.t + gained), to = levelOf(t1);
@@ -136,12 +141,12 @@
   }
 
   /* Lo que reconoce el SERVIDOR (verificado): desafío diario terminado y partida online entre dos cuentas. Mismos números que award(). */
-  var ONLINE_DAILY_CAP = 10;                                          // partidas online por día que dan XP verificado (evita que dos amigos se regalen XP)
+  var ONLINE_DAILY_CAP = 5;                                          // partidas online por día que dan XP verificado (evita que dos amigos se regalen XP)
   function dailyGain(win, streak, firstTime, day) {
     var n = 30 + (win ? 30 : 0), st = Math.max(0, Math.min(7, streak || 0)); if (st > 1) n += 5 * st; n *= eventMult(day); if (firstTime) n += FIRSTS.daily; return n;
   }
   function onlineGain(win, day) { return (20 + (win ? 20 : 0)) * eventMult(day); }
 
-  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, GEM_LEVEL: GEM_LEVEL, BOARD_LEVEL: BOARD_LEVEL, boardOpensAt: boardOpensAt, DATE_LOCK: DATE_LOCK, applyLevels: applyLevels, cleanLevels: cleanLevels, levelsConfig: levelsConfig, defaultLevels: defaultLevels, boardLevel: boardLevel, boardOk: boardOk, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
+  return { ONLINE_DAILY_CAP: ONLINE_DAILY_CAP, dailyGain: dailyGain, onlineGain: onlineGain, MAX_LEVEL: MAX_LEVEL, MIN_MOVES: MIN_MOVES, CASUAL_CAP: CASUAL_CAP, ONLINE_MIN_MOVES: ONLINE_MIN_MOVES, AI_CAP: AI_CAP, GEM_LEVEL: GEM_LEVEL, BOARD_LEVEL: BOARD_LEVEL, boardOpensAt: boardOpensAt, DATE_LOCK: DATE_LOCK, applyLevels: applyLevels, cleanLevels: cleanLevels, levelsConfig: levelsConfig, defaultLevels: defaultLevels, boardLevel: boardLevel, boardOk: boardOk, need: need, cumulative: cumulative, levelOf: levelOf, titleIndex: titleIndex,
     clean: clean, merge: merge, unlocksAt: unlocksAt, nextUnlock: nextUnlock, PART_LEVEL: PART_LEVEL, partLevel: partLevel, partOk: partOk, partsAt: partsAt, gemOk: gemOk, award: award, eventMult: eventMult };
 });
