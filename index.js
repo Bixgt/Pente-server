@@ -448,6 +448,7 @@ function createPenteServer(config) {
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
     const seat = seatList(room).find((s) => !room.seats[s]);
     if (!seat) return send(ws, { t: 'error', code: 'ROOM_FULL' });
+    { const d0 = cleanDev(msg.dev); if (d0 && room.owner === d0 && !isFull(room)) return send(ws, { t: 'error', code: 'ROOM_OWN' }); }          // no podés entrar de rival a tu propia sala
     const token = newToken();
     room.seats[seat] = { name: cleanName(msg.name, 'Jugador ' + seat), token, ws: null, leftAt: 0, uid: '', avatar: cleanAv(msg.avatar), title: cleanTi(msg.title) }; bindAccount(room.seats[seat], msg.jwt);
     const jdev = cleanDev(msg.dev); if (jdev) closeOwned(jdev, room);          // si se une a otra sala, la suya en espera se cierra
@@ -615,15 +616,16 @@ function createPenteServer(config) {
   }
 
   /* ---------- Salas públicas y espectadores ---------- */
-  function publicList() {
+  function publicList(dev) {
     const out = [];
     rooms.forEach((room) => {
-      if (!room.public) return;
-      if (room.reserved && !isFull(room)) return;                    // sala armada para un amigo: no se ofrece a otros mientras espera
+      const own = !!dev && room.owner === dev && !isFull(room);          // tu sala en espera: siempre te aparece, para volver a ella
+      if (!room.public && !own) return;
+      if (room.reserved && !isFull(room) && !own) return;                    // sala armada para un amigo: no se ofrece a otros mientras espera
       const c = connectedMap(room);
-      if (!humanOnline(room)) return;                                // sala fantasma: ninguna persona conectada (los bots no cuentan)
+      if (!humanOnline(room) && !own) return;                                // sala fantasma: ninguna persona conectada (los bots no cuentan)
       out.push({
-        code: room.code, size: room.opts.size, tournamentRule: room.opts.tournamentRule, exactFive: room.opts.exactFive,
+        mine: own, code: room.code, size: room.opts.size, tournamentRule: room.opts.tournamentRule, exactFive: room.opts.exactFive,
         players: room.opts.players,
         names: seatList(room).map((s) => (room.seats[s] ? room.seats[s].name : '')), bots: Object.keys(botsOf(room)).length,
         variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet, ffa: !!room.opts.ffa,
@@ -969,7 +971,7 @@ function createPenteServer(config) {
         case 'seek': return onSeek(ws, msg);
         case 'rejoin': lobbyLeave(ws); return onRejoin(ws, msg);
         case 'closeRoom': return onCloseRoom(ws, msg);
-        case 'list': return send(ws, { t: 'rooms', rooms: publicList() });
+        case 'list': return send(ws, { t: 'rooms', rooms: publicList(cleanDev(msg.dev)) });
         case 'spectate': lobbyLeave(ws); return onSpectate(ws, msg);
         case 'chat': return onChat(ws, msg);
         case 'lobby': return onLobby(ws, msg);
