@@ -11,6 +11,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "web-push": "^3.6.7",
     "ws": "^8.18.0"
   },
   "license": "UNLICENSED",

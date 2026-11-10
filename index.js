@@ -34,6 +34,7 @@ const AI = require('./pente-ai.js');
 const D = require('./pente-daily.js');
 const XP = require('./pente-xp.js');
 const makeTourneys = require('./tourneys.js');
+const { makePush } = require('./push.js');
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0, 1 (se confunden)
 const CODE_LENGTH = 5;
@@ -301,6 +302,42 @@ function createPenteServer(config) {
     },
   });
   const friendsDb = config.friendsDb || (sbUrl && sbService ? sbFriends() : { are: async () => false });
+  /* Avisos push (push.js): apagado si faltan las claves VAPID en el entorno. */
+  const push = config.push || makePush({ env: config.pushEnv || process.env, sbUrl, sbService, svcHeaders });
+  if (!config.quiet) console.log('[push] ' + (push.enabled ? 'activo' : 'apagado (' + push.why + ')'));
+  const pushPair = new Map();                                      // límite: un aviso por tipo y par de cuentas cada tanto
+  function pushOnce(key, ms) { const now = Date.now(); if (now - (pushPair.get(key) || 0) < ms) return false; pushPair.set(key, now); if (pushPair.size > 3000) for (const [k, v] of pushPair) if (now - v > 3600000) pushPair.delete(k); return true; }
+  const nameOf = async (uid) => { try { const n = await dailyDb.names([uid]); return (n[uid] && n[uid].name) || 'Alguien'; } catch (e) { return 'Alguien'; } };
+  function onPush(ws, msg) {
+    const reply = (o) => send(ws, Object.assign({ t: 'pushRes', for: msg.t }, o));
+    if (msg.t === 'pushKey') return send(ws, { t: 'pushKey', enabled: push.enabled, key: push.publicKey });
+    if (!push.enabled) return reply({ ok: false, reason: 'off' });
+    dailyUid(ws, msg.jwt).then(async (uid) => {
+      if (!uid) return reply({ ok: false, reason: 'login' });
+      if (msg.t === 'pushSub') return reply({ ok: await push.save(uid, msg.sub, msg.prefs, msg.ua) });
+      if (msg.t === 'pushOff') return reply({ ok: await push.remove(uid, String(msg.endpoint || '')) });
+      if (msg.t === 'pushPrefs') return reply({ ok: await push.setPrefs(uid, String(msg.endpoint || ''), msg.prefs) });
+      if (msg.t === 'pushFb') {                                      // la administradora marcó un comentario como revisado: se le avisa a quien lo mandó
+        if (!(await isAdmin(uid))) return reply({ ok: false, reason: 'forbidden' });
+        const id = Math.floor(Number(msg.id)); if (!(id > 0) || !sbUrl || !sbService) return reply({ ok: false });
+        const r = await fetch(sbUrl + '/rest/v1/feedback?id=eq.' + id + '&select=uid,reply,notified_at&limit=1', { headers: svcHeaders() });
+        const row = r.ok ? (await r.json())[0] : null; if (!row || !row.notified_at) return reply({ ok: false });
+        const n = await push.send(row.uid, 'feedback', { title: 'Revisamos tu comentario', body: row.reply || 'Ya lo vimos y lo tuvimos en cuenta. ¡Gracias por avisar!', url: './?notis=1', tag: 'fb-' + id });
+        return reply({ ok: true, n });
+      }
+      if (msg.t === 'pushFriend') {                                  // mandaste una solicitud de amistad: se le avisa a esa persona (si de verdad existe la solicitud)
+        if (!sbUrl || !sbService) return reply({ ok: false });
+        const nm = String(msg.name || '').trim().slice(0, 20); if (!/^[\p{L}\p{N}_.-]{1,20}$/u.test(nm)) return reply({ ok: false });
+        const pr = await fetch(sbUrl + '/rest/v1/profiles?name=ilike.' + encodeURIComponent(nm) + '&select=id&limit=1', { headers: svcHeaders() });
+        const to = pr.ok ? ((await pr.json())[0] || {}).id : null; if (!to || to === uid) return reply({ ok: false });
+        const fr = await fetch(sbUrl + '/rest/v1/friendships?status=eq.pending&or=(and(a.eq.' + encodeURIComponent(uid) + ',b.eq.' + encodeURIComponent(to) + '),and(a.eq.' + encodeURIComponent(to) + ',b.eq.' + encodeURIComponent(uid) + '))&select=a&limit=1', { headers: svcHeaders() });
+        if (!fr.ok || !(await fr.json()).length) return reply({ ok: false });
+        if (!pushOnce('friend|' + uid + '|' + to, 3600000)) return reply({ ok: false, reason: 'rate' });
+        const n = await push.send(to, 'friend', { title: 'Solicitud de amistad', body: (await nameOf(uid)) + ' quiere ser tu amigo/a en Pente.', url: './?notis=1', tag: 'friend-' + uid });
+        return reply({ ok: true, n });
+      }
+    }).catch(() => reply({ ok: false, reason: 'error' }));
+  }
   const presenceDel = (ws) => { if (!ws.suid) return; const set = presence.get(ws.suid); if (set) { set.delete(ws); if (!set.size) presence.delete(ws.suid); } ws.suid = null; };
   function onHi(ws, msg) {
     dailyUid(ws, msg.jwt).then((uid) => {
@@ -326,7 +363,12 @@ function createPenteServer(config) {
       let friends = false; try { friends = await friendsDb.are(from, to); } catch (e) { return bad('error'); }
       if (!friends) return bad('notfriends');
       const live = [...(presence.get(to) || [])].filter((w) => w.readyState === 1);
-      if (!live.length) { room.reserved = ''; return bad('offline'); }
+      if (!live.length) {
+        const nm = room.seats[1] ? room.seats[1].name : 'Un amigo';
+        const n = push.enabled && pushOnce('invite|' + from + '|' + to, 30000) ? await push.send(to, 'invite', { title: nm + ' te retó a una partida', body: 'Tocá para entrar a la sala.', url: './?sala=' + room.code, tag: 'invite-' + room.code }) : 0;
+        if (!n) { room.reserved = ''; return bad('offline'); }
+        room.reserved = to; return send(ws, { t: 'inviteRes', ok: true, code: room.code, pushed: true });             // no estaba conectado: se le mandó un aviso al celular
+      }
       room.reserved = to;
       const av = AV_OK.test(String(msg.avatar || '')) ? String(msg.avatar) : '', co = /^[A-Z]{2}$/.test(String(msg.country || '')) ? String(msg.country) : '';
       const pl = { t: 'invite', code: room.code, from: { name: room.seats[1].name, avatar: av, country: co }, watch: !!room.public, opts: { size: room.opts.size, variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet } };
@@ -428,7 +470,7 @@ function createPenteServer(config) {
     };
   }
   const tourneyStore = config.tourneyStore || (sbUrl && sbService ? sbTourneyStore() : memTourneyStore());
-  const tourneys = makeTourneys({ closeRoom: closeTourneyRoom, send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
+  const tourneys = makeTourneys({ push, pushOnce, closeRoom: closeTourneyRoom, send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom: makeTourneyRoom, rooms, cleanOpts, store: tourneyStore });
 
   function onCreate(ws, msg) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
@@ -971,6 +1013,7 @@ function createPenteServer(config) {
         case 'create': lobbyLeave(ws); return onCreate(ws, msg);
         case 'join': lobbyLeave(ws); return joinGuarded(ws, msg);
         case 'hi': return onHi(ws, msg);
+        case 'pushKey': case 'pushSub': case 'pushOff': case 'pushPrefs': case 'pushFb': case 'pushFriend': return onPush(ws, msg);
         case 'invite': return onInvite(ws, msg);
         case 'inviteNo': return onInviteNo(ws, msg);
         case 'chk': return onChk(ws, msg);

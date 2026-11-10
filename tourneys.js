@@ -24,6 +24,7 @@ const KEEP_MS = 45 * 24 * 3600e3, EVICT_MS = 30 * 60e3;      // en el almacén s
 
 module.exports = function makeTourneys(ctx) {
   const { send, cleanName, cleanDev, cleanChat, newToken, newCode, presence, friendsDb, dailyUid, makeRoom, rooms, store, closeRoom } = ctx;
+  const pusher = ctx.push || { enabled: false, send: async () => 0 }, pushOnce = ctx.pushOnce || (() => true);
   const map = new Map(), loading = new Map(), safe = (p) => Promise.resolve(p).catch(() => null);
   let lastPrune = 0;
   const err = (ws, code, detail) => send(ws, { t: 'terror', code, detail });
@@ -288,7 +289,12 @@ module.exports = function makeTourneys(ctx) {
       let friends = false; try { friends = await friendsDb.are(from, to); } catch (e) { return bad('error'); }
       if (!friends) return bad('notfriends');
       const live = [...(presence.get(to) || [])].filter((w) => w.readyState === 1);
-      if (!live.length) return bad('offline');
+      if (!live.length) {                                          // no está conectado: si activó los avisos, le llega al celular
+        const n = pusher.enabled && pushOnce('tinv|' + T.code + '|' + to, 30000) ? await pusher.send(to, 'tourney', { title: p.name + ' te invitó a un torneo', body: T.name || 'Torneo de Pente', url: './?t=' + T.code, tag: 'tn-' + T.code }) : 0;
+        if (!n) return bad('offline');
+        if (!T.invited.includes(to)) { T.invited.push(to); if (T.invited.length > MAX_PLAYERS * 4) T.invited.shift(); await save(T); }
+        return send(ws, { t: 'tinviteRes', ok: true, to, pushed: true });
+      }
       const av = AV_OK.test(String(msg.avatar || '')) ? String(msg.avatar) : '', co = /^[A-Z]{2}$/.test(String(msg.country || '')) ? String(msg.country) : '';
       if (!T.invited.includes(to)) { T.invited.push(to); if (T.invited.length > MAX_PLAYERS * 4) T.invited.shift(); await save(T); }
       live.forEach((w) => send(w, { t: 'tinvite', code: T.code, name: T.name, from: { name: p.name, avatar: av, country: co }, cfg: T.cfg, game: { size: T.game.size, variant: T.game.variant, blitz: !!T.game.blitz, bullet: !!T.game.bullet } }));
