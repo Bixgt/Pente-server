@@ -62,7 +62,7 @@ module.exports = function makeTourneys(ctx) {
     let S = null; if (T.S) { S = JSON.parse(JSON.stringify(T.S)); S.log = []; }
     const live = p && p.go && rooms.get(p.go.code) && !rooms.get(p.go.code).over ? p.go : null;
     return {
-      t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, ev: T.ev || null, inv: T.inv, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
+      t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, ev: T.ev ? Object.assign({}, T.ev, { now: Date.now() }) : null, inv: T.inv, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
       players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid, spec: !!x.spec })),
       cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || '', chat: T.chat || [], viewers: T.viewers ? T.viewers.size : 0
     };
@@ -195,11 +195,19 @@ module.exports = function makeTourneys(ctx) {
     const d = findDuel(T.S, String(msg.duel || ''));
     if (!d || d.status === 'done' || d.bye || !d.a || !d.b || (d.a !== p.pid && d.b !== p.pid) || PT.blocked(T.S, d)) return err(ws, 'TN_BAD_DUEL');      // (la final espera al partido por el 3.er puesto)
     if (T.rooms[d.id] && rooms.get(T.rooms[d.id]) && !rooms.get(T.rooms[d.id]).over) { push(T); return; }       // ya hay una partida en juego: se vuelve a mandar su acceso
+    if (roundWait(T.S, d.id)) return err(ws, 'TN_WAIT_ROUND');      // la fecha siguiente no se juega hasta que terminen todos los duelos de la anterior
     delete T.rooms[d.id];
     const set = T.ready[d.id] || (T.ready[d.id] = new Set()), fresh = !set.has(p.pid); set.add(p.pid);
     if (set.has(d.a) && set.has(d.b)) startGame(T, d);
     else if (fresh) { const rv = byPid(T, d.a === p.pid ? d.b : d.a); if (rv && rv.ws) send(rv.ws, { t: 'tcall', duel: d.id, from: p.name, code: T.code }); }      // le avisa al rival que ya está listo
     push(T);
+  }
+  function roundWait(S, duelId) {
+    for (let i = 0; i < S.rounds.length; i++) {
+      if (!S.rounds[i].duels.some((x) => x.id === duelId)) continue;
+      return i > 0 && !S.rounds[i - 1].duels.every((x) => x.status === 'done');
+    }
+    return false;
   }
   function startGame(T, d) {
     const first = PT.opener(d, d.games.length), second = first === d.a ? d.b : d.a, pf = byPid(T, first), ps = byPid(T, second);
@@ -217,7 +225,7 @@ module.exports = function makeTourneys(ctx) {
     const T = map.get(tr.code); if (!T || !T.S) return;
     delete T.rooms[tr.duelId]; T.players.forEach((p) => { if (p.go && p.go.code === room.code) p.go = null; });
     const pid = tr.pids[winner], d = findDuel(T.S, tr.duelId);
-    if (!pid) { T.note = 'draw'; push(T); return; }
+    if (!pid) { T.note = 'draw'; if (T.ev && T.ev.dl) T.ev.dl[tr.duelId] = Date.now() + EV_WAIT_NEXT; push(T); return; }
     if (d && d.status !== 'done') {
       try { T.S = PT.recordGames(T.S, d.id, d.games.concat([pid])); T.note = ''; } catch (e) { /* ya lo había resuelto el organizador */ }
       if (T.S.status === 'finished') T.status = 'finished';
@@ -341,6 +349,7 @@ module.exports = function makeTourneys(ctx) {
    * No tienen organizador (orgPid vacío): los maneja el servidor. El código es fijo por día, así el reinicio de Render no los duplica.
    * Quien despierta al servidor (un ping a /health, o alguien que abre el menú) dispara tickEvents; si se durmió pasadas las 21:00 y ya había gente inscripta, arranca tarde. */
   const ART_MS = -3 * 3600e3, DAY_MS = 86400e3, EV_DAYS = [5, 6], EV_MIN = 4, EV_NAMES = { 5: 'Evento del viernes', 6: 'Evento del sábado' };
+  const EV_WAIT_FIRST = 5 * 60e3, EV_WAIT_NEXT = 3 * 60e3, EV_GRACE = 90e3;      // tiempo para presentarse al duelo (5 min en la primera ronda, 3 en las demás)
   const EV_CFG = { name: '', format: 'swiss_cut', bestOf: 1, minDuels: 3, cut: 4, third: false };
   function evSlotOfDay(dayN) {
     const dow = (dayN + 4) % 7; if (!EV_DAYS.includes(dow)) return null;      // 1/1/1970 fue jueves
@@ -351,6 +360,30 @@ module.exports = function makeTourneys(ctx) {
     const d0 = Math.floor((now + ART_MS) / DAY_MS);
     for (let i = 0; i < 8; i++) { const s = evSlotOfDay(d0 + i); if (s && s.endAt > now) return s; }
     return null;
+  }
+  /* Presentarse al duelo: cada duelo jugable tiene un plazo. Si vence, gana quien tocó «Jugar» y está esperando; si no se presentó ninguno, quedan los dos fuera del evento. */
+  async function evTimeouts(T, now) {
+    const ev = T.ev, S0 = T.S; if (!ev || !S0) return;
+    ev.dl = ev.dl || {}; let changed = false;
+    const live = (id) => { const r = T.rooms[id] && rooms.get(T.rooms[id]); return !!(r && !r.over); };
+    S0.rounds.forEach((r, ri) => r.duels.forEach((d) => {
+      if (d.bye || d.status === 'done' || !d.a || !d.b || PT.blocked(S0, d) || roundWait(S0, d.id) || live(d.id)) return;
+      if (!ev.dl[d.id]) { ev.dl[d.id] = now + (ri === 0 ? EV_WAIT_FIRST : EV_WAIT_NEXT); changed = true; }
+    }));
+    for (const id of Object.keys(ev.dl)) {
+      const d = findDuel(T.S, id);
+      if (!d || d.status === 'done' || d.bye) { delete ev.dl[id]; changed = true; continue; }
+      if (live(id)) { ev.dl[id] = Math.max(ev.dl[id], now + EV_WAIT_NEXT); continue; }          // se está jugando: el plazo corre recién si termina en empate
+      if (now < ev.dl[id]) continue;
+      if (now - ev.dl[id] > EV_GRACE) { ev.dl[id] = now + 2 * 60e3; changed = true; continue; }      // el servidor estuvo dormido: nadie pudo presentarse, se da una prórroga
+      const rd = T.ready[id] || new Set(), a = rd.has(d.a), b = rd.has(d.b);
+      try {
+        if (a !== b) T.S = PT.forfeit(T.S, id, a ? d.a : d.b);
+        else T.S = PT.withdraw(PT.withdraw(T.S, d.a), d.b);
+      } catch (e) { delete ev.dl[id]; continue; }
+      delete ev.dl[id]; delete T.ready[id]; dropGame(T, id); changed = true;
+    }
+    if (changed) { syncStatus(T); await commit(T); }
   }
   const evDone = new Set(); let evBusy = false;
   async function tickEvents(now) {
@@ -367,13 +400,14 @@ module.exports = function makeTourneys(ctx) {
       }
       T.touched = now;
       if (T.status === 'open' && now >= slot.startAt) {
-        evDone.add(slot.code);
         const plr = T.players.filter((p) => !p.spec);
         if (plr.length < EV_MIN) { await closeNow(T, 'noplayers'); return; }
         const order = PT.shuffle(plr.map((p) => p.pid), Math.floor(Math.random() * 1e6) + 1);
+        T.cfg = Object.assign({}, T.cfg, plr.length >= 6 ? { minDuels: 3, cut: 4 } : { minDuels: 2, cut: 2 });      // con pocos jugadores el suizo no da para 3 duelos
         try { T.S = PT.create(T.cfg, order.map((pid) => ({ id: pid, name: byPid(T, pid).name }))); } catch (e) { await closeNow(T, 'noplayers'); return; }
-        T.status = T.S.status === 'finished' ? 'finished' : 'running'; await commit(T);
-      } else if (T.status !== 'open') evDone.add(slot.code);
+        T.status = T.S.status === 'finished' ? 'finished' : 'running'; await commit(T); await evTimeouts(T, now);
+      } else if (T.status === 'running' && T.S) await evTimeouts(T, now);
+      else if (T.status !== 'open') evDone.add(slot.code);
     } catch (e) { /* se reintenta en el próximo latido */ } finally { evBusy = false; }
   }
   async function onEvents(ws) {                                                   // qué evento viene (o está en curso) para la tarjeta del menú

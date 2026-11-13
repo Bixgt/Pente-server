@@ -59,8 +59,11 @@ function makePush({ env, sbUrl, sbService, svcHeaders, fetchImpl, webpush }) {
     const body = JSON.stringify({ title: String(payload.title || 'Pente').slice(0, 80), body: String(payload.body || '').slice(0, 200), url: String(payload.url || './').slice(0, 300), tag: String(payload.tag || kind).slice(0, 60), kind });
     let n = 0;
     await Promise.all(subs.filter((s) => cleanPrefs(s.prefs)[kind]).map(async (s) => {
-      try { await wp.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: 'normal' }); n++; }
-      catch (e) { if (e && (e.statusCode === 404 || e.statusCode === 410)) await dropEndpoint(s.endpoint); }
+      try { await wp.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, body, { TTL: 3600, urgency: 'high' }); n++; }      // 'high' despierta al celu aunque esté en ahorro de batería (Doze); con 'normal' Android puede demorar el aviso
+      catch (e) {
+        if (e && (e.statusCode === 404 || e.statusCode === 410)) await dropEndpoint(s.endpoint);
+        else console.log('[push] falló un envío (' + String(e && (e.statusCode || e.code || e.message)).slice(0, 60) + ') · ' + kind);
+      }
     }));
     return n;
   }
