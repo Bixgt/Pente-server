@@ -35,11 +35,11 @@ module.exports = function makeTourneys(ctx) {
 
   /* ---------- guardar / cargar ---------- */
   function pack(T) {          // lo que se guarda (sin conexiones, sin partidas en juego)
-    return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, inv: T.inv, invited: T.invited, seq: T.seq, orgPid: T.orgPid, S: T.S, created: T.created, last: T.last, chat: (T.chat || []).slice(-CHAT_KEEP),
+    return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, inv: T.inv, invited: T.invited, seq: T.seq, orgPid: T.orgPid, ev: T.ev || null, S: T.S, created: T.created, last: T.last, chat: (T.chat || []).slice(-CHAT_KEEP),
       players: T.players.map((p) => ({ pid: p.pid, name: p.name, uid: p.uid, token: p.token, spec: !!p.spec })) };
   }
   function hydrate(d) {
-    return { code: d.code, owner: d.owner || '', name: d.name, status: d.status, cfg: d.cfg, game: d.game, inv: cleanInv(d.inv), invited: Array.isArray(d.invited) ? d.invited.slice(0, MAX_PLAYERS * 4) : [], seq: d.seq || 0, orgPid: d.orgPid, S: d.S || null, created: d.created || Date.now(), last: d.last || Date.now(), touched: Date.now(),
+    return { code: d.code, owner: d.owner || '', name: d.name, status: d.status, cfg: d.cfg, game: d.game, inv: cleanInv(d.inv), invited: Array.isArray(d.invited) ? d.invited.slice(0, MAX_PLAYERS * 4) : [], seq: d.seq || 0, orgPid: d.orgPid, ev: d.ev || null, S: d.S || null, created: d.created || Date.now(), last: d.last || Date.now(), touched: Date.now(),
       players: (d.players || []).map((p) => ({ pid: p.pid, name: p.name, uid: p.uid || '', token: p.token, spec: !!p.spec, ws: null, go: null })), ready: {}, rooms: {}, note: '', viewers: new Set(), chat: Array.isArray(d.chat) ? d.chat.slice(-CHAT_KEEP) : [], chatSeq: Array.isArray(d.chat) && d.chat.length ? d.chat[d.chat.length - 1].n || d.chat.length : 0 };
   }
   function save(T) { T.last = Date.now(); return safe(store.put(T.code, { owner: T.owner, status: T.status, data: pack(T) })); }
@@ -62,7 +62,7 @@ module.exports = function makeTourneys(ctx) {
     let S = null; if (T.S) { S = JSON.parse(JSON.stringify(T.S)); S.log = []; }
     const live = p && p.go && rooms.get(p.go.code) && !rooms.get(p.go.code).over ? p.go : null;
     return {
-      t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, inv: T.inv, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
+      t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, ev: T.ev || null, inv: T.inv, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
       players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid, spec: !!x.spec })),
       cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || '', chat: T.chat || [], viewers: T.viewers ? T.viewers.size : 0
     };
@@ -336,7 +336,54 @@ module.exports = function makeTourneys(ctx) {
     T.players.forEach((x) => { if (x.ws) send(x.ws, o); }); T.viewers.forEach((w) => send(w, o)); saveChatSoon(T);
   }
 
-  const HANDLERS = { tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tgame: onGame, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite, tinvcfg: onInvCfg };
+  /* ---------- eventos fijos (viernes y sábado) ----------
+   * Se abren solos a las 20:00 (hora Argentina), arrancan a las 21:00 (todas las partidas son bullet: 1 minuto por jugador) si hay al menos EV_MIN inscriptos (si no, se cancelan) y terminan a las 23:00.
+   * No tienen organizador (orgPid vacío): los maneja el servidor. El código es fijo por día, así el reinicio de Render no los duplica.
+   * Quien despierta al servidor (un ping a /health, o alguien que abre el menú) dispara tickEvents; si se durmió pasadas las 21:00 y ya había gente inscripta, arranca tarde. */
+  const ART_MS = -3 * 3600e3, DAY_MS = 86400e3, EV_DAYS = [5, 6], EV_MIN = 4, EV_NAMES = { 5: 'Evento del viernes', 6: 'Evento del sábado' };
+  const EV_CFG = { name: '', format: 'swiss_cut', bestOf: 1, minDuels: 3, cut: 4, third: false };
+  function evSlotOfDay(dayN) {
+    const dow = (dayN + 4) % 7; if (!EV_DAYS.includes(dow)) return null;      // 1/1/1970 fue jueves
+    const mid = dayN * DAY_MS - ART_MS;
+    return { dow, code: 'E' + dayN.toString(36).toUpperCase().padStart(4, '0'), name: EV_NAMES[dow], openAt: mid + 20 * 3600e3, startAt: mid + 21 * 3600e3, endAt: mid + 23 * 3600e3 };
+  }
+  function evNext(now) {                                                          // el evento en curso o el próximo
+    const d0 = Math.floor((now + ART_MS) / DAY_MS);
+    for (let i = 0; i < 8; i++) { const s = evSlotOfDay(d0 + i); if (s && s.endAt > now) return s; }
+    return null;
+  }
+  const evDone = new Set(); let evBusy = false;
+  async function tickEvents(now) {
+    if (evBusy) return; evBusy = true;
+    try {
+      const slot = evSlotOfDay(Math.floor((now + ART_MS) / DAY_MS));
+      if (!slot || now < slot.openAt || now >= slot.endAt || evDone.has(slot.code)) return;
+      let T = await load(slot.code);
+      if (!T) {
+        if (now >= slot.startAt) { evDone.add(slot.code); return; }                // pasó la hora de arranque y nadie lo abrió: no hay evento
+        const cfg = Object.assign({}, EV_CFG, { name: slot.name });
+        T = { code: slot.code, owner: 'event', name: slot.name, status: 'open', cfg, game: ctx.cleanOpts({ variant: 'classic', bullet: true, players: 2, ffa: false }), inv: cleanInv({}), invited: [], players: [], seq: 0, orgPid: '', ev: { openAt: slot.openAt, startAt: slot.startAt, endAt: slot.endAt }, S: null, ready: {}, rooms: {}, viewers: new Set(), chat: [], chatSeq: 0, created: now, last: now, touched: now, note: '' };
+        map.set(slot.code, T); await save(T);
+      }
+      T.touched = now;
+      if (T.status === 'open' && now >= slot.startAt) {
+        evDone.add(slot.code);
+        const plr = T.players.filter((p) => !p.spec);
+        if (plr.length < EV_MIN) { await closeNow(T, 'noplayers'); return; }
+        const order = PT.shuffle(plr.map((p) => p.pid), Math.floor(Math.random() * 1e6) + 1);
+        try { T.S = PT.create(T.cfg, order.map((pid) => ({ id: pid, name: byPid(T, pid).name }))); } catch (e) { await closeNow(T, 'noplayers'); return; }
+        T.status = T.S.status === 'finished' ? 'finished' : 'running'; await commit(T);
+      } else if (T.status !== 'open') evDone.add(slot.code);
+    } catch (e) { /* se reintenta en el próximo latido */ } finally { evBusy = false; }
+  }
+  async function onEvents(ws) {                                                   // qué evento viene (o está en curso) para la tarjeta del menú
+    const now = Date.now(); await tickEvents(now);
+    const s = evNext(now); if (!s) return send(ws, { t: 'tevents', ev: null });
+    const T = await load(s.code), n = T && T.status === 'open' ? T.players.filter((p) => !p.spec).length : (T ? (T.S ? T.S.players.length : 0) : 0);
+    send(ws, { t: 'tevents', ev: { code: s.code, name: s.name, openAt: s.openAt, startAt: s.startAt, endAt: s.endAt, min: EV_MIN, exists: !!T, status: T ? T.status : 'pending', players: n, now } });
+  }
+
+  const HANDLERS = { tevents: onEvents, tchat: onChat, tspectate: onSpectateT, tcreate: onCreate, tjoin: onJoin, trejoin: onRejoin, tstart: onStart, tcfg: onCfg, tgame: onGame, tplay: onPlay, tunplay: onUnplay, tforfeit: onForfeit, tresult: onResult, tundo: onUndo, trewind: onRewind, tcancel: onCancelGame, twithdraw: onWithdraw, tleave: onWithdraw, tclose: onClose, tinvite: onInvite, tinvcfg: onInvCfg };
   function handle(ws, msg) {
     const h = HANDLERS[msg.t]; if (!h) return false;
     Promise.resolve().then(() => h(ws, msg)).catch(() => err(ws, 'SERVER_ERROR'));
@@ -349,6 +396,7 @@ module.exports = function makeTourneys(ctx) {
   }
   /* Cada tanto: se descargan de la memoria los torneos sin nadie conectado (siguen guardados) y se borran los viejos del almacén. */
   function sweep(now) {
+    tickEvents(now);
     map.forEach((T, code) => { if (now - T.touched > EVICT_MS && !T.players.some((p) => p.ws) && !Object.keys(T.rooms).length) map.delete(code); });
     if (now - lastPrune > 6 * 3600e3) { lastPrune = now; safe(store.prune(now - KEEP_MS)); }
   }
