@@ -781,7 +781,7 @@ function createPenteServer(config) {
         const r = await fetch(sbUrl + '/rest/v1/daily_scores?on_conflict=uid,day', { method: 'POST', headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(body) });
         if (!r.ok) throw new Error('sb ' + r.status);
       },
-      history: async (uid, from) => (await get('daily_scores?uid=eq.' + q(uid) + '&or=(finished.eq.true,moves.gte.1)&day=gte.' + q(from) + '&select=day&limit=20')).map((r) => r.day),
+      history: async (uid, from) => (await get('daily_scores?uid=eq.' + q(uid) + '&or=(finished.eq.true,moves.gte.1)&day=gte.' + q(from) + '&select=day&order=day.desc&limit=100')).map((r) => r.day),
       day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason,comment,comment_hidden&limit=1000'),
       setComment: async (uid, day, text) => {                      // una sola vez: solo si todavía no hay comentario (supabase/daily-comments.sql)
         const r = await fetch(sbUrl + '/rest/v1/daily_scores?uid=eq.' + q(uid) + '&day=eq.' + q(day) + '&comment=is.null', { method: 'PATCH', headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }), body: JSON.stringify({ comment: text }) });
