@@ -36,11 +36,11 @@ module.exports = function makeTourneys(ctx) {
   /* ---------- guardar / cargar ---------- */
   function pack(T) {          // lo que se guarda (sin conexiones, sin partidas en juego)
     return { code: T.code, owner: T.owner, name: T.name, status: T.status, cfg: T.cfg, game: T.game, inv: T.inv, invited: T.invited, seq: T.seq, orgPid: T.orgPid, S: T.S, created: T.created, last: T.last, chat: (T.chat || []).slice(-CHAT_KEEP),
-      players: T.players.map((p) => ({ pid: p.pid, name: p.name, uid: p.uid, token: p.token })) };
+      players: T.players.map((p) => ({ pid: p.pid, name: p.name, uid: p.uid, token: p.token, spec: !!p.spec })) };
   }
   function hydrate(d) {
     return { code: d.code, owner: d.owner || '', name: d.name, status: d.status, cfg: d.cfg, game: d.game, inv: cleanInv(d.inv), invited: Array.isArray(d.invited) ? d.invited.slice(0, MAX_PLAYERS * 4) : [], seq: d.seq || 0, orgPid: d.orgPid, S: d.S || null, created: d.created || Date.now(), last: d.last || Date.now(), touched: Date.now(),
-      players: (d.players || []).map((p) => ({ pid: p.pid, name: p.name, uid: p.uid || '', token: p.token, ws: null, go: null })), ready: {}, rooms: {}, note: '', viewers: new Set(), chat: Array.isArray(d.chat) ? d.chat.slice(-CHAT_KEEP) : [], chatSeq: Array.isArray(d.chat) && d.chat.length ? d.chat[d.chat.length - 1].n || d.chat.length : 0 };
+      players: (d.players || []).map((p) => ({ pid: p.pid, name: p.name, uid: p.uid || '', token: p.token, spec: !!p.spec, ws: null, go: null })), ready: {}, rooms: {}, note: '', viewers: new Set(), chat: Array.isArray(d.chat) ? d.chat.slice(-CHAT_KEEP) : [], chatSeq: Array.isArray(d.chat) && d.chat.length ? d.chat[d.chat.length - 1].n || d.chat.length : 0 };
   }
   function save(T) { T.last = Date.now(); return safe(store.put(T.code, { owner: T.owner, status: T.status, data: pack(T) })); }
   function load(code) {
@@ -63,7 +63,7 @@ module.exports = function makeTourneys(ctx) {
     const live = p && p.go && rooms.get(p.go.code) && !rooms.get(p.go.code).over ? p.go : null;
     return {
       t: 'tsnap', code: T.code, name: T.name, status: T.status, org: T.orgPid, inv: T.inv, you: p ? { pid: p.pid, org: p.pid === T.orgPid } : null,
-      players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid })),
+      players: T.players.map((x) => ({ pid: x.pid, name: x.name, online: !!x.ws, acct: !!x.uid, spec: !!x.spec })),
       cfg: T.cfg, game: T.game, S, ready: readyOf(T), playing: Object.keys(T.rooms), watch: watchOf(T), go: live, note: T.note || '', chat: T.chat || [], viewers: T.viewers ? T.viewers.size : 0
     };
   }
@@ -101,7 +101,7 @@ module.exports = function makeTourneys(ctx) {
   function addPlayer(T, ws, name, uid) {
     const low = name.toLowerCase();
     if (uid) { const same = T.players.find((x) => x.uid === uid); if (same) { bind(T, same, ws); return same; } }
-    if (T.players.length >= MAX_PLAYERS) { err(ws, 'TN_FULL'); return null; }
+    if (T.players.filter((x) => !x.spec).length >= MAX_PLAYERS) { err(ws, 'TN_FULL'); return null; }
     if (T.players.some((x) => x.name.toLowerCase() === low)) { err(ws, 'TN_NAME'); return null; }
     const p = { pid: 'p' + (++T.seq), name, uid: uid || '', token: newToken(), ws: null, go: null };
     T.players.push(p); bind(T, p, ws); return p;
@@ -119,7 +119,7 @@ module.exports = function makeTourneys(ctx) {
     const T = { code, owner: dev, name: cfg.name, status: 'open', cfg, game: ctx.cleanOpts(Object.assign({}, msg.game, { players: 2, ffa: false })), inv: cleanInv(msg.inv), invited: [], players: [], seq: 0, orgPid: '', S: null, ready: {}, rooms: {}, viewers: new Set(), chat: [], chatSeq: 0, created: Date.now(), last: Date.now(), touched: Date.now(), note: '' };
     map.set(code, T);
     const p = addPlayer(T, ws, cleanName(msg.pname, 'Organizador'), uid); if (!p) { map.delete(code); return; }
-    T.orgPid = p.pid;
+    T.orgPid = p.pid; if (msg.orgPlays === false) p.spec = true;           // el organizador puede solo gestionar: no entra al sorteo ni a los cruces
     await save(T);
     send(ws, { t: 'tjoined', code, token: p.token, pid: p.pid, org: true });
     push(T);
@@ -134,21 +134,35 @@ module.exports = function makeTourneys(ctx) {
     if (T.status !== 'open' && !known) return err(ws, 'TN_STARTED');
     if (T.inv.only && !known && !(uid && T.invited.includes(uid))) return err(ws, 'TN_INVITE_ONLY');
     if (T.inv.acct && !known && !uid) return err(ws, 'TN_NEED_ACCOUNT');                          // solo con cuenta: los invitados sin sesión no entran      // solo por invitación: el código no alcanza
-    const fresh = !known, p = known ? (bind(T, known, ws), known) : addPlayer(T, ws, cleanName(msg.name, 'Jugador'), uid);
+    const pname = cleanName(msg.name, 'Jugador');
+    if (!known && !uid && /^invitado\s*\d*$/i.test(pname)) return err(ws, 'TN_NEED_NAME');     // sin cuenta: hace falta un nombre propio para distinguirse
+    const fresh = !known, p = known ? (bind(T, known, ws), known) : addPlayer(T, ws, pname, uid);
     if (!p) return;
     if (fresh) await save(T);
     send(ws, { t: 'tjoined', code: T.code, token: p.token, pid: p.pid, org: p.pid === T.orgPid });
     push(T);
   }
+  /* Si alguien entró como invitado y después inició sesión, su lugar en el torneo pasa a ser de su cuenta y toma su nombre real
+   * (siempre que ese nombre no lo tenga ya otro jugador del torneo). */
+  function adoptAccount(T, p, uid, rawName) {
+    let changed = false;
+    if (uid && !p.uid && !T.players.some((x) => x !== p && x.uid === uid)) { p.uid = uid; changed = true; }
+    const nm = typeof rawName === 'string' ? cleanName(rawName, '') : '';
+    if (uid && p.uid === uid && nm && nm !== p.name && !T.players.some((x) => x !== p && x.name.toLowerCase() === nm.toLowerCase())) {
+      p.name = nm; const q = T.S && T.S.players && T.S.players.find((x) => x.id === p.pid); if (q) q.name = nm; changed = true;
+    }
+    return changed;
+  }
   async function onRejoin(ws, msg) {
     const a = await auth(ws, msg); if (!a) return;
+    if (msg.jwt) { const uid = await safe(dailyUid(ws, msg.jwt)); if (uid && adoptAccount(a.T, a.p, uid, msg.name)) await save(a.T); }
     bind(a.T, a.p, ws); send(ws, { t: 'tjoined', code: a.T.code, token: a.p.token, pid: a.p.pid, org: a.p.pid === a.T.orgPid });
     push(a.T);
   }
   async function onStart(ws, msg) {
     const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
     if (T.status !== 'open') return err(ws, 'TN_STARTED');
-    const order = PT.shuffle(T.players.map((p) => p.pid), Math.floor(Math.random() * 1e6) + 1);          // sorteo de cabezas de serie
+    const order = PT.shuffle(T.players.filter((p) => !p.spec).map((p) => p.pid), Math.floor(Math.random() * 1e6) + 1);          // sorteo de cabezas de serie
     let S;
     try { S = PT.create(T.cfg, order.map((pid) => ({ id: pid, name: byPid(T, pid).name }))); } catch (e) { return err(ws, 'TN_INVALID', String(e.message || '').slice(0, 200)); }
     T.S = S; T.status = S.status === 'finished' ? 'finished' : 'running'; await commit(T);

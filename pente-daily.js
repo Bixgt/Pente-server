@@ -29,7 +29,7 @@
     var rng = mulberry(hash('pente-daily:' + key)), lo = 3, hi = SIZE - 4, tries = 0;
     for (;;) {
       tries++;
-      var s = P.createGame({ size: SIZE, tournamentRule: false }), setup = [], seen = {}, ok = true;
+      var s = P.createGame({ size: SIZE, tournamentRule: false, exactFive: true }), setup = [], seen = {}, ok = true;
       while (setup.length < SETUP_STONES) {
         var x = lo + Math.floor(rng() * (hi - lo + 1)), y = lo + Math.floor(rng() * (hi - lo + 1)), k = x + ',' + y;
         if (seen[k]) continue;
@@ -45,7 +45,7 @@
     }
   }
   function startState(sp) {                                              // partida lista para jugar desde la posición del día
-    var s = P.createGame({ size: sp.size, tournamentRule: false });
+    var s = P.createGame({ size: sp.size, tournamentRule: false, exactFive: true });
     sp.setup.forEach(function (m) { s = P.playMove(s, m[0], m[1], s.current).state; });
     return s;
   }
