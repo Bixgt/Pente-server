@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pente · diagnóstico</title>
+<style>
+body{margin:0;padding:16px;background:#14161b;color:#eef0f4;font:16px/1.4 system-ui,-apple-system,sans-serif}
+h1{font-size:20px;margin:0 0 4px}p{color:#9aa1ad;margin:4px 0 12px}
+.row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #2a2e37;font-size:15px}
+.ok{color:#6fdc8c;font-weight:700}.bad{color:#ff7b7b;font-weight:700}.wait{color:#e8b04a}
+button{width:100%;min-height:56px;margin:10px 0;border-radius:12px;border:2px solid #e8b04a;background:#e8b04a;color:#14161b;font:700 18px system-ui}
+button.alt{background:#232730;color:#eef0f4;border-color:#3a3f4b}
+textarea{width:100%;height:150px;background:#0e1014;color:#eef0f4;border:1px solid #2a2e37;border-radius:8px;font:12px monospace;box-sizing:border-box}
+#ev{font:13px monospace;color:#9aa1ad;white-space:pre-wrap;min-height:40px}
+</style></head><body>
+<h1>Pente · diagnóstico</h1>
+<p>Esperá unos segundos a que terminen las pruebas y mandale una captura de esta pantalla (o el informe de abajo) a quien te pasó el link.</p>
+<div id="tests"></div>
+<h1 style="margin-top:18px">Prueba de toques</h1>
+<p>Tocá el botón varias veces. Si el número no sube, el navegador no está entregando los toques a la página.</p>
+<button id="tap">Tocá acá · toques: <span id="n">0</span></button>
+<div id="ev">eventos recibidos: (ninguno todavía)</div>
+<button class="alt" id="copy">Copiar informe</button>
+<textarea id="rep" readonly></textarea>
+<script>
+(function(){
+  var out=[],box=document.getElementById('tests'),rep=document.getElementById('rep');
+  function row(name,state,detail){var r=document.createElement('div');r.className='row';r.innerHTML='<span></span><span></span>';r.children[0].textContent=name;box.appendChild(r);return function(st,d){r.children[1].className=st;r.children[1].textContent=(st==='ok'?'OK':st==='bad'?'FALLA':'…')+(d?' · '+d:'');var i=out.findIndex(function(o){return o.n===name});var o={n:name,s:st,d:d||''};if(i<0)out.push(o);else out[i]=o;rep.value=report()}}
+  function report(){return 'Pente diag v36\n'+navigator.userAgent+'\n'+out.map(function(o){return o.n+': '+o.s+(o.d?' ('+o.d+')':'')}).join('\n')+'\neventos: '+document.getElementById('ev').textContent}
+  function t(name,fn,ms){var set=row(name);set('wait');var done=false,to=setTimeout(function(){if(!done){done=true;set('bad','no responde en '+(ms||3000)/1000+' s')}},ms||3000);
+    try{Promise.resolve(fn()).then(function(d){if(!done){done=true;clearTimeout(to);set('ok',d)}},function(e){if(!done){done=true;clearTimeout(to);set('bad',String(e&&e.message||e))}})}catch(e){done=true;clearTimeout(to);set('bad',String(e&&e.message||e))}}
+  var u=navigator.userAgent,m=u.match(/OS (\d+[_\d]*)/);
+  row('Sistema')('ok',(m?'iOS '+m[1].replace(/_/g,'.'):'?')+' · '+(/WhatsApp|Instagram|FBAN|FBAV/i.test(u)?'dentro de una app (WhatsApp/Instagram)':'navegador')+' · '+screen.width+'x'+screen.height);
+  t('localStorage',function(){localStorage.setItem('x','1');localStorage.removeItem('x');return 'anda'});
+  t('IndexedDB',function(){return new Promise(function(res,rej){var r=indexedDB.open('diag-'+Date.now());r.onsuccess=function(){res('anda')};r.onerror=function(){rej('error')};r.onblocked=function(){rej('bloqueado')}})});
+  t('Canvas 2D',function(){var c=document.createElement('canvas').getContext('2d');if(!c)throw new Error('devuelve null');c.fillStyle='#f00';c.fillRect(0,0,4,4);var d=c.getImageData(0,0,1,1).data;return 'pixel='+d[0]+','+d[1]+','+d[2]});
+  t('Audio (AudioContext)',function(){var A=window.AudioContext||window.webkitAudioContext;if(!A)throw new Error('no existe');var a=new A();var s=a.state;a.close&&a.close();return 'estado '+s});
+  t('Audio offline (música)',function(){var O=window.OfflineAudioContext||window.webkitOfflineAudioContext;if(!O)throw new Error('no existe');var o=new O(1,16000,16000);return o.startRendering().then(function(b){return 'renderizó '+b.length+' muestras'})},5000);
+  t('Service worker',function(){if(!navigator.serviceWorker)throw new Error('no disponible (normal en apps)');return 'disponible'});
+  t('Servidor de partidas',function(){return fetch('https://pente-server.onrender.com/health',{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){return 'responde'+(j.accounts?' · cuentas activas':' · cuentas SIN activar')})},12000);
+  t('WebSocket',function(){return new Promise(function(res,rej){var w=new WebSocket('wss://pente-server.onrender.com');w.onopen=function(){w.close();res('conecta')};w.onerror=function(){rej('error')}})},12000);
+  t('Regex Unicode',function(){return new RegExp('^[\\p{L}\\p{N}]+$','u').test('Añ1')?'anda':'mal'});
+  /* toques */
+  var n=0,ev={},evEl=document.getElementById('ev');
+  function bump(k){ev[k]=(ev[k]||0)+1;evEl.textContent='eventos recibidos: '+Object.keys(ev).map(function(x){return x+'×'+ev[x]}).join('  ');rep.value=report()}
+  ['touchstart','touchend','pointerdown','pointerup','mousedown','click'].forEach(function(k){document.addEventListener(k,function(){bump(k)},true)});
+  document.getElementById('tap').addEventListener('click',function(){n++;document.getElementById('n').textContent=n});
+  document.getElementById('copy').addEventListener('click',function(){rep.select();try{navigator.clipboard.writeText(rep.value)}catch(e){try{document.execCommand('copy')}catch(e2){}}});
+  rep.value=report();
+})();
+</script></body></html>
