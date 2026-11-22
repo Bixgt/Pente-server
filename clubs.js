@@ -117,12 +117,13 @@ module.exports = function makeClubs(ctx) {
     mem.forEach((u) => { if (u !== uid) live(u).forEach((w) => send(w, { t: 'cdirty', id: c.id, kicked: true })); }); res(ws, op, null, c.id);
   }
   function res(ws, op, reason, id) { send(ws, reason ? { t: 'cres', op, ok: false, reason } : { t: 'cres', op, ok: true, id }); }
+  const READS = new Set(['cstatus', 'clist', 'cview']);
   const NEEDS_CLUB = new Set(['cview', 'cleave', 'ckick', 'crole', 'ctransfer', 'cpreset', 'cpresetdel', 'ccode', 'crename', 'cdelete']);
 
   /* true si el mensaje era de clubes (lo atiende de forma asíncrona) */
   function handle(ws, msg) {
     const h = HANDLERS[msg.t]; if (!h) return false;
-    const now = Date.now(); if (now - (ws.lastClub || 0) < 250) { send(ws, { t: 'cres', op: msg.t, ok: false, reason: 'RATE' }); return true; } ws.lastClub = now;
+    if (!READS.has(msg.t)) { const now = Date.now(); if (now - (ws.lastClub || 0) < 250) { send(ws, { t: 'cres', op: msg.t, ok: false, reason: 'RATE' }); return true; } ws.lastClub = now; }   // las lecturas no se limitan (el cliente refresca solo)
     Promise.resolve(readyP).then(() => dailyUid(ws, msg.jwt)).then(async (uid) => {
       if (!uid) return msg.t === 'cstatus' ? send(ws, { t: 'cstatus', enabled: false }) : res(ws, msg.t, 'LOGIN');
       if (!(await enabledFor(uid))) return msg.t === 'cstatus' ? send(ws, { t: 'cstatus', enabled: false }) : res(ws, msg.t, 'DISABLED');
