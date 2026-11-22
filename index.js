@@ -503,7 +503,7 @@ function createPenteServer(config) {
     const jdev = cleanDev(msg.dev); if (jdev) closeOwned(jdev, room);          // si se une a otra sala, la suya en espera se cierra
     attach(ws, room, seat); touch(room);
     if (isFull(room)) clockStart(room);                // ya están todos: corre el reloj del primero
-    if (isFull(room) && room.club) clubs.touchClub(room.club);                // el club se entera de que empezó una partida
+    if (isFull(room) && room.club) clubs.touchClub(room.club, seatList(room).map((x) => (room.seats[x] ? room.seats[x].name : '')).join(' vs '));                // el club se entera de que empezó una partida
     send(ws, { t: 'joined', code: room.code, token, you: seat });
     // el que entra recibe la foto completa; los que ya estaban también (hay un asiento más ocupado, o ya empezó)
     send(ws, snapshot(room, seat)); sendChatLog(ws, room);
