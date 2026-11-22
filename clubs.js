@@ -13,7 +13,7 @@ const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', CODE_LEN = 6;
 const RANK = { member: 1, officer: 2, leader: 3 };
 
 module.exports = function makeClubs(ctx) {
-  const { send, dailyUid, names, enabledFor, presence, store, cleanOpts } = ctx;
+  const { send, dailyUid, names, enabledFor, presence, store, cleanOpts } = ctx, gamesOf = ctx.gamesOf || (() => []);
   const clubs = new Map(), byCode = new Map(), byMember = new Map();           // id -> club, código -> id, uid -> Set(id)
   let ready = false;
   const readyP = Promise.resolve(store.all()).then((list) => { (list || []).forEach(index); ready = true; }).catch((e) => { console.log('[clubs] no se pudo cargar:', e && e.message); ready = true; });
@@ -35,7 +35,7 @@ module.exports = function makeClubs(ctx) {
     const uids = Object.keys(c.members), nm = await names(uids).catch(() => ({}));
     const list = uids.map((u) => { const ws = live(u); return { uid: u, name: (nm[u] && nm[u].name) || 'Jugador', role: c.members[u].role, online: ws.length > 0, busy: ws.some((w) => !!w.room) }; })
       .sort((a, b) => (b.online - a.online) || (RANK[b.role] - RANK[a.role]) || a.name.localeCompare(b.name));
-    return { id: c.id, name: c.name, emoji: c.emoji, role: roleOf(c, uid), max: MAX_MEMBERS, code: atLeast(c, uid, 'officer') ? c.code : '', members: list, presets: c.presets.map((p) => ({ id: p.id, name: p.name, opts: p.opts })) };
+    return { id: c.id, me: uid, name: c.name, emoji: c.emoji, role: roleOf(c, uid), max: MAX_MEMBERS, code: atLeast(c, uid, 'officer') ? c.code : '', games: gamesOf(c.id), members: list, presets: c.presets.map((p) => ({ id: p.id, name: p.name, opts: p.opts })) };
   }
   function summary(c, uid) { let on = 0; Object.keys(c.members).forEach((u) => { if (live(u).length) on++; }); return { id: c.id, name: c.name, emoji: c.emoji, role: roleOf(c, uid), n: Object.keys(c.members).length, online: on }; }
 
@@ -135,5 +135,9 @@ module.exports = function makeClubs(ctx) {
   }
   /* Un socio se conectó o desconectó: avisa a los demás socios de sus clubes para que refresquen «conectados». */
   function onPresence(uid) { const ids = byMember.get(uid); if (!ids) return; ids.forEach((id) => { const c = clubs.get(id); if (c) dirty(c, uid); }); }
-  return { handle, onPresence, ready: readyP, _clubs: clubs };
+  /* ¿los dos son socios de ese club? (para poder retarse sin ser amigos) */
+  const isMember = (id, u) => { const c = clubs.get(String(id || '')); return !!c && !!c.members[u]; };
+  const touchClub = (id) => { const c = clubs.get(String(id || '')); if (c) dirty(c); };         // avisa a los socios conectados que cambió algo (p. ej. empezó una partida)
+  const shareClub = (id, a, b) => { const c = clubs.get(String(id || '')); return !!c && !!c.members[a] && !!c.members[b] && a !== b; };
+  return { handle, onPresence, shareClub, isMember, touchClub, ready: readyP, _clubs: clubs };
 };

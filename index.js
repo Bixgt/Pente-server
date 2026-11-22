@@ -361,8 +361,9 @@ function createPenteServer(config) {
     if (!/^[0-9a-f-]{36}$/i.test(to)) return bad('bad');
     dailyUid(ws, msg.jwt).then(async (from) => {
       if (!from || from === to) return bad('bad');
-      let friends = false; try { friends = await friendsDb.are(from, to); } catch (e) { return bad('error'); }
+      let friends = false; if (msg.club && clubs.shareClub(msg.club, from, to)) friends = true; else try { friends = await friendsDb.are(from, to); } catch (e) { return bad('error'); }      // socios del mismo club se pueden retar sin ser amigos
       if (!friends) return bad('notfriends');
+      if (msg.club && clubs.shareClub(msg.club, from, to)) room.club = String(msg.club);              // partida del club: los socios la pueden mirar aunque no sea pública
       const live = [...(presence.get(to) || [])].filter((w) => w.readyState === 1);
       if (!live.length) {
         const nm = room.seats[1] ? room.seats[1].name : 'Un amigo';
@@ -502,6 +503,7 @@ function createPenteServer(config) {
     const jdev = cleanDev(msg.dev); if (jdev) closeOwned(jdev, room);          // si se une a otra sala, la suya en espera se cierra
     attach(ws, room, seat); touch(room);
     if (isFull(room)) clockStart(room);                // ya están todos: corre el reloj del primero
+    if (isFull(room) && room.club) clubs.touchClub(room.club);                // el club se entera de que empezó una partida
     send(ws, { t: 'joined', code: room.code, token, you: seat });
     // el que entra recibe la foto completa; los que ya estaban también (hay un asiento más ocupado, o ya empezó)
     send(ws, snapshot(room, seat)); sendChatLog(ws, room);
@@ -685,11 +687,14 @@ function createPenteServer(config) {
     return out.slice(0, MAX_LISTED).map((r) => { delete r.at; return r; });
   }
 
-  function onSpectate(ws, msg) {
+  function onSpectate(ws, msg, clubOk) {
     if (ws.room) return send(ws, { t: 'error', code: 'ALREADY_IN_ROOM' });
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room) return send(ws, { t: 'error', code: 'ROOM_NOT_FOUND' });
-    if (!room.public && !(room.tourney && tourneys.canWatch(room.tourney.code, msg))) return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });             // las salas privadas son solo para jugadores (salvo una partida de torneo: la miran los participantes de ese torneo)
+    if (!room.public && !clubOk && !(room.tourney && tourneys.canWatch(room.tourney.code, msg))) {
+      if (room.club && msg.jwt) { dailyUid(ws, msg.jwt).then((uid) => { if (uid && clubs.isMember(room.club, uid)) onSpectate(ws, msg, true); else send(ws, { t: 'error', code: 'PRIVATE_ROOM' }); }).catch(() => send(ws, { t: 'error', code: 'PRIVATE_ROOM' })); return; }       // partida de club: la ven los socios del club
+      return send(ws, { t: 'error', code: 'PRIVATE_ROOM' });
+    }             // las salas privadas son solo para jugadores (salvo una partida de torneo: la miran los participantes de ese torneo)
     if (!isFull(room)) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
     if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
     ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);
@@ -986,7 +991,8 @@ function createPenteServer(config) {
     };
   }
   const clubsPublic = config.clubsPublic === true || process.env.CLUBS_PUBLIC === '1';
-  const clubs = makeClubs({ send, dailyUid, names: (u) => dailyDb.names(u), enabledFor: async (uid) => clubsPublic || isAdmin(uid), presence, cleanOpts, store: config.clubStore || (sbUrl && sbService ? sbClubStore() : memClubStore()) });
+  const clubGames = (id) => { const out = []; rooms.forEach((room) => { if (room.club !== id || !isFull(room) || gameOverNow(room)) return; out.push({ code: room.code, names: seatList(room).map((x) => (room.seats[x] ? room.seats[x].name : '')), variant: room.opts.variant, blitz: !!room.opts.blitz, bullet: !!room.opts.bullet, size: room.opts.size, moves: room.moves.length, spectators: room.spectators.size }); }); return out; };
+  const clubs = makeClubs({ gamesOf: clubGames, send, dailyUid, names: (u) => dailyDb.names(u), enabledFor: async (uid) => clubsPublic || isAdmin(uid), presence, cleanOpts, store: config.clubStore || (sbUrl && sbService ? sbClubStore() : memClubStore()) });
   function cleanDailyComment(s) {
     const t = cleanChat(s).slice(0, DAILY_COMMENT_MAX);
     if (!t || /https?:|www\.|\w\.(com|net|org|ar|io|me|ly)\b/i.test(t)) return '';        // sin links
