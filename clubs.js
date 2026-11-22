@@ -30,7 +30,7 @@ module.exports = function makeClubs(ctx) {
   const rand = (n, alpha) => { let s = ''; for (let i = 0; i < n; i++) s += alpha[crypto.randomInt(alpha.length)]; return s; };
   function newCode() { for (let i = 0; i < 50; i++) { const c = rand(CODE_LEN, CODE_ALPHABET); if (!byCode.has(c)) return c; } return null; }
   const cleanTxt = (s, max) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f\u2028\u2029<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
-  const cleanEmoji = (s) => { const a = Array.from(String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').trim()); return a.slice(0, 2).join('') || '♟️'; };
+  const cleanEmoji = (s) => { if (/^s(0[1-9]|1[0-9]|2[0-4])$/.test(String(s))) return String(s);  const a = Array.from(String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').trim()); return a.slice(0, 2).join('') || '♟️'; };
   const live = (u) => [...(presence.get(u) || [])].filter((w) => w.readyState === 1);
   const roleOf = (c, u) => (c.members[u] ? c.members[u].role : null);
   const atLeast = (c, u, r) => !!roleOf(c, u) && RANK[roleOf(c, u)] >= RANK[r];
