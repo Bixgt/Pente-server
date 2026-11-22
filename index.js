@@ -34,6 +34,7 @@ const AI = require('./pente-ai.js');
 const D = require('./pente-daily.js');
 const XP = require('./pente-xp.js');
 const makeTourneys = require('./tourneys.js');
+const makeClubs = require('./clubs.js');
 const { makePush } = require('./push.js');
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // sin I, O, 0, 1 (se confunden)
@@ -338,13 +339,13 @@ function createPenteServer(config) {
       }
     }).catch(() => reply({ ok: false, reason: 'error' }));
   }
-  const presenceDel = (ws) => { if (!ws.suid) return; const set = presence.get(ws.suid); if (set) { set.delete(ws); if (!set.size) presence.delete(ws.suid); } ws.suid = null; };
+  const presenceDel = (ws) => { if (!ws.suid) return; const u = ws.suid, set = presence.get(u); if (set) { set.delete(ws); if (!set.size) presence.delete(u); } ws.suid = null; if (typeof clubs !== 'undefined') clubs.onPresence(u); };
   function onHi(ws, msg) {
     dailyUid(ws, msg.jwt).then((uid) => {
       if (!uid) return send(ws, { t: 'hi', ok: false });
       if (ws.suid && ws.suid !== uid) presenceDel(ws);
       ws.suid = uid; if (!presence.has(uid)) presence.set(uid, new Set()); presence.get(uid).add(ws);
-      send(ws, { t: 'hi', ok: true });
+      send(ws, { t: 'hi', ok: true }); clubs.onPresence(uid);
     });
   }
   const AV_OK = /^[a-z][a-z0-9]{0,15}$|^c(\.[a-z]{3,12}){5}$/;
@@ -974,6 +975,18 @@ function createPenteServer(config) {
   const DAILY_COMMENT_MAX = 140;
   const ADMIN_NAME = String(config.adminName || 'bixgt').toLowerCase();
   async function isAdmin(uid) { try { const n = await dailyDb.names([uid]); return !!(n[uid] && String(n[uid].name).toLowerCase() === ADMIN_NAME); } catch (e) { return false; } }
+  /* Clubes (clubs.js): guardados en public.clubs (supabase/clubs.sql) o en memoria. Mientras CLUBS_PUBLIC no sea 1, solo los ve la cuenta admin. */
+  function memClubStore() { const m = new Map(); return { all: async () => [...m.values()].map((x) => JSON.parse(JSON.stringify(x))), put: async (c) => { m.set(c.id, JSON.parse(JSON.stringify(c))); }, del: async (id) => { m.delete(id); } }; }
+  function sbClubStore() {
+    const H = (extra) => svcHeaders(Object.assign({ 'Content-Type': 'application/json' }, extra)), T = '/rest/v1/clubs', ok = (r) => { if (!r.ok) throw new Error('clubs ' + r.status); return r; };
+    return {
+      all: async () => { const rows = await sbFetch(T + '?select=data&limit=5000', { headers: H() }).then(ok).then((r) => r.json()); return (rows || []).map((x) => x.data).filter(Boolean); },
+      put: async (c) => { await sbFetch(T + '?on_conflict=id', { method: 'POST', headers: H({ Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify({ id: c.id, data: c, updated_at: new Date().toISOString() }) }).then(ok); },
+      del: async (id) => { await sbFetch(T + '?id=eq.' + encodeURIComponent(id), { method: 'DELETE', headers: H() }).then(ok); }
+    };
+  }
+  const clubsPublic = config.clubsPublic === true || process.env.CLUBS_PUBLIC === '1';
+  const clubs = makeClubs({ send, dailyUid, names: (u) => dailyDb.names(u), enabledFor: async (uid) => clubsPublic || isAdmin(uid), presence, cleanOpts, store: config.clubStore || (sbUrl && sbService ? sbClubStore() : memClubStore()) });
   function cleanDailyComment(s) {
     const t = cleanChat(s).slice(0, DAILY_COMMENT_MAX);
     if (!t || /https?:|www\.|\w\.(com|net|org|ar|io|me|ly)\b/i.test(t)) return '';        // sin links
@@ -1042,7 +1055,7 @@ function createPenteServer(config) {
         case 'dailyComment': return void onDailyComment(ws, msg);
         case 'dailyHide': return void onDailyHide(ws, msg);
         case 'ping': return send(ws, { t: 'pong' });
-        default: if (tourneys.handle(ws, msg)) return; return send(ws, { t: 'error', code: 'BAD_REQUEST' });
+        default: if (tourneys.handle(ws, msg) || clubs.handle(ws, msg)) return; return send(ws, { t: 'error', code: 'BAD_REQUEST' });
       }
     });
     ws.on('close', () => {
