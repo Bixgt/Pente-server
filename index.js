@@ -169,7 +169,7 @@ function createPenteServer(config) {
     }
     if (req.url === '/health' || req.url === '/') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, rooms: rooms.size, accounts: !!(sbUrl && sbAnon && sbService) }));   // accounts: ¿están cargadas las 3 variables de Supabase?
+      res.end(JSON.stringify({ ok: true, rooms: rooms.size, accounts: !!(sbUrl && sbAnon && sbService), clubs: !!clubsPublic }));   // clubs: ¿Clubes está abierto para todos?   // accounts: ¿están cargadas las 3 variables de Supabase?
     } else { res.writeHead(404); res.end(); }
   });
 
