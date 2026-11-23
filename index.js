@@ -368,7 +368,7 @@ function createPenteServer(config) {
       if (!live.length) {
         const nm = room.seats[1] ? room.seats[1].name : 'Un amigo';
         const n = push.enabled && pushOnce('invite|' + from + '|' + to, 30000) ? await push.send(to, 'invite', { title: nm + ' te retó a una partida', body: 'Tocá para entrar a la sala.', url: './?sala=' + room.code, tag: 'invite-' + room.code }) : 0;
-        if (!n) { room.reserved = ''; return bad('offline'); }
+        if (!n) { room.reserved = to; return bad('offline'); }                          // sin conexión ni aviso: la sala sigue siendo SOLO de esa cuenta (entra con el link o el código); nadie más puede sentarse
         room.reserved = to; return send(ws, { t: 'inviteRes', ok: true, code: room.code, pushed: true });             // no estaba conectado: se le mandó un aviso al celular
       }
       room.reserved = to;
@@ -401,7 +401,7 @@ function createPenteServer(config) {
   function onInviteNo(ws, msg) {
     const room = rooms.get(String(msg.code || '').toUpperCase().trim());
     if (!room || !ws.suid || room.reserved !== ws.suid) return;
-    room.reserved = '';
+    /* Si rechaza, la reserva se queda: la sala no se abre sola a cualquiera. Quien la creó la cierra y arma otra (o busca partida). */
     const s = room.seats[1]; if (s && s.ws) send(s.ws, { t: 'inviteDeclined', code: room.code, name: cleanName(msg.name, 'Tu amigo'), reason: msg.reason === 'busy' ? 'busy' : 'no' });
   }
   function joinGuarded(ws, msg) {                                  // una sala reservada para un amigo solo la puede ocupar esa cuenta
