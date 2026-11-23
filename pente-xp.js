@@ -6,7 +6,7 @@
   else root.PenteXP = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  var MAX_LEVEL = 60, MIN_MOVES = 10, CASUAL_CAP = 180, CAP = 10000000;
+  var MAX_LEVEL = 100, MIN_MOVES = 10, CASUAL_CAP = 180, CAP = 10000000;
   var TITLE_AT = [1, 4, 8, 13, 19, 26, 34, 43];                       // nivel desde el que rige cada título (xp.title.1 ... xp.title.8)
   var GEM_LEVEL = { oro: 6, neon: 9, coral: 12, obsidiana: 16, galaxia: 22 };                    // las 9 piedras de siempre son libres
   var BOARD_LEVEL = { glow: 2, papel: 4, playa: 7, jardin: 10, halloween: 13, galaxia: 17 };       // tableros: Simple y Tradicional son libres
