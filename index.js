@@ -697,6 +697,9 @@ function createPenteServer(config) {
     }             // las salas privadas son solo para jugadores (salvo una partida de torneo: la miran los participantes de ese torneo)
     if (!isFull(room)) return send(ws, { t: 'error', code: 'NOT_STARTED' });             // no hay nada que mirar todavía
     if (room.spectators.size >= MAX_SPECTATORS) return send(ws, { t: 'error', code: 'SPECTATORS_FULL' });
+    const sdev = cleanDev(msg.dev);                                         // el mismo aparato mirando dos veces (una conexión vieja que quedó colgada): se queda solo la nueva
+    if (sdev) [...room.spectators].forEach((w) => { if (w !== ws && w.dev === sdev) { room.spectators.delete(w); w.room = null; w.spectator = false; try { w.close(4000, 'replaced'); } catch (e) {} } });
+    ws.dev = sdev;
     ws.room = room; ws.seat = 0; ws.spectator = true; room.spectators.add(ws); touch(room);
     ws.cid = 's' + (++room.specSeq); ws.name = cleanName(msg.name, 'Espectador');
     send(ws, { t: 'joined', code: room.code, you: 0, spectator: true, id: ws.cid });
