@@ -130,7 +130,12 @@ module.exports = function makeTourneys(ctx) {
     if (ws.tn && ws.tn.code !== T.code) return err(ws, 'ALREADY_IN_TOURNEY');
     const uid = await safe(dailyUid(ws, msg.jwt));
     if (ws.readyState !== 1) return;
-    const known = uid && T.players.find((x) => x.uid === uid);        // la misma cuenta vuelve a entrar: es la misma persona (también con el torneo ya empezado)
+    const pname0 = cleanName(msg.name, '');
+    let known = uid && T.players.find((x) => x.uid === uid);          // la misma cuenta vuelve a entrar: es la misma persona (también con el torneo ya empezado)
+    if (uid && !known && pname0 && !T.players.some((x) => x.uid === uid)) {      // te inscribiste sin sesión (sin que quedara tu cuenta) y ahora entrás con ella: el lugar con tu mismo nombre pasa a ser de tu cuenta
+      const cand = T.players.filter((x) => !x.uid && !x.spec && x.name.toLowerCase() === pname0.toLowerCase());
+      if (cand.length === 1 && adoptAccount(T, cand[0], uid, pname0)) { known = cand[0]; await save(T); }
+    }
     if (T.status !== 'open' && !known) return err(ws, 'TN_STARTED');
     if (T.inv.only && !known && !(uid && T.invited.includes(uid))) return err(ws, 'TN_INVITE_ONLY');
     if (T.inv.acct && !known && !uid) return err(ws, 'TN_NEED_ACCOUNT');                          // solo con cuenta: los invitados sin sesión no entran      // solo por invitación: el código no alcanza

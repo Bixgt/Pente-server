@@ -788,7 +788,7 @@ function createPenteServer(config) {
         if (!r.ok) throw new Error('sb ' + r.status);
       },
       history: async (uid, from) => (await get('daily_scores?uid=eq.' + q(uid) + '&or=(finished.eq.true,moves.gte.1)&day=gte.' + q(from) + '&select=day&order=day.desc&limit=100')).map((r) => r.day),
-      day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason,comment,comment_hidden&limit=1000'),
+      day: (day) => get('daily_scores?day=eq.' + q(day) + '&or=(finished.eq.true,moves.gte.1)&select=uid,finished,win,draw,moves,ms,level,captures,reason,comment,comment_hidden,updated_at&limit=1000'),
       setComment: async (uid, day, text) => {                      // una sola vez: solo si todavía no hay comentario (supabase/daily-comments.sql)
         const r = await fetch(sbUrl + '/rest/v1/daily_scores?uid=eq.' + q(uid) + '&day=eq.' + q(day) + '&comment=is.null', { method: 'PATCH', headers: svcHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }), body: JSON.stringify({ comment: text }) });
         if (!r.ok) throw new Error('sb ' + r.status);
@@ -905,6 +905,7 @@ function createPenteServer(config) {
     g = dailyRestore(sp, uid, row); dailyGames.set(key, g); return g;
   }
   async function onDailyInfo(ws, msg) {
+    if (msg.past) { const ps = D.spec(D.addDays(todayKey(), -1)); return send(ws, { t: 'dailyPast', date: ps.date, n: ps.n, level: ps.level, size: ps.size, setup: ps.setup }); }      // el de ayer: solo para práctica, no se guarda nada
     const sp = D.spec(todayKey()), uid = await dailyUid(ws, msg.jwt);
     if (!uid) return send(ws, Object.assign(dailyView(sp, null), { needAccount: true }));
     const g = await dailyFind(uid, sp), v = dailyView(sp, g); v.played = await playedDays(uid, sp);
@@ -961,12 +962,13 @@ function createPenteServer(config) {
     return val;
   }
   async function onDailyBoard(ws, msg) {
-    const uid = await dailyUid(ws, msg.jwt), today = todayKey();
+    const uid = await dailyUid(ws, msg.jwt), now = todayKey(), prev = !!msg.prev, yday = !!msg.yday, today = prev ? D.addDays(D.weekStart(now), -1) : yday ? D.addDays(now, -1) : now;   // prev: la semana pasada completa (lunes a domingo)
     let b; try { b = await buildBoard(today); } catch (e) { return send(ws, { t: 'error', code: 'SERVER_ERROR' }); }
     const nm = (u) => (b.names[u] && b.names[u].name) || 'Jugador', av = (u) => (b.names[u] && b.names[u].avatar) || '', co = (u) => (b.names[u] && b.names[u].country) || '', xp = (u) => b.xps[u] || 0;
     const admin = !!uid && await isAdmin(uid), viewerDone = !!uid && !!b.done[uid];                // los comentarios los leen solo quienes ya terminaron el desafío de hoy
     const dayRow = (r) => {
       const o = { rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), playing: !!r.playing, win: !!r.win, draw: !!r.draw, moves: r.moves, ms: r.ms, me: r.uid === uid };
+      if (r.win && r.updated_at) o.at = r.updated_at;                       // hora en que terminó (la muestra el cliente en su zona horaria)
       const c = b.comments[r.uid];
       if (c && (viewerDone || admin) && (!c.hidden || admin || r.uid === uid)) { o.comment = c.text; if (c.hidden) o.hidden = true; }
       if (c && admin) o.cid = r.uid;                                       // solo la administradora recibe el id, para poder ocultar
@@ -974,7 +976,7 @@ function createPenteServer(config) {
     };
     const weekRow = (r) => ({ rank: r.rank, name: nm(r.uid), avatar: av(r.uid), country: co(r.uid), xp: xp(r.uid), points: r.points, wins: r.wins, played: r.played, moves: r.moves, ms: r.ms, me: r.uid === uid });
     const cut = (list, f) => { const top = list.slice(0, BOARD_TOP).map(f); const mine = list.findIndex((r) => r.uid === uid); return { rows: top, mine: mine >= BOARD_TOP ? f(list[mine]) : null, total: list.length }; };
-    send(ws, { t: 'dailyBoard', date: b.today, weekFrom: b.from, today: cut(b.dayRank, dayRow), week: cut(b.weekRank, weekRow), commentsLocked: !viewerDone && !admin && Object.keys(b.comments).length > 0, admin });
+    send(ws, { t: 'dailyBoard', prev, yday, date: b.today, weekFrom: b.from, today: cut(b.dayRank, dayRow), week: cut(b.weekRank, weekRow), commentsLocked: !viewerDone && !admin && Object.keys(b.comments).length > 0, admin });
   }
   /* Comentario del desafío: uno solo por cuenta y por día, solo después de terminarlo; lo leen quienes ya terminaron. La administradora (nombre "Bixgt") puede ocultarlos. */
   const DAILY_COMMENT_MAX = 140;
