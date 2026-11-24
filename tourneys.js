@@ -18,6 +18,7 @@
  * Almacén (ctx.store): get(code) → {…}|null · put(code, {owner, status, data}) · del(code) · openByOwner(dev) → [codes] · prune(cutoffMs). Todo devuelve promesas. */
 'use strict';
 const PT = require('./pente-tournament.js');
+const crypto = require('crypto');
 
 const MAX_TOURNEYS = 200, MAX_PLAYERS = 32, NAME_MAX = 40, MAX_VIEWERS = 100, CHAT_KEEP = 60, CHAT_GAP_MS = 700;
 const KEEP_MS = 45 * 24 * 3600e3, EVICT_MS = 30 * 60e3;      // en el almacén se conserva 45 días sin actividad; de la memoria se descarga a los 30 min sin nadie conectado
@@ -215,12 +216,15 @@ module.exports = function makeTourneys(ctx) {
     return false;
   }
   function startGame(T, d) {
-    const first = PT.opener(d, d.games.length), second = first === d.a ? d.b : d.a, pf = byPid(T, first), ps = byPid(T, second);
+    /* Partida que decide el duelo (1-1 en un mejor de 3, 2-2 en un mejor de 5...): quién empieza se sortea (lo tira el servidor). Si no, se alterna. */
+    const n = (T.S.cfg.bestOf + 1) / 2, decider = T.S.cfg.bestOf > 1 && d.score && d.score.a === n - 1 && d.score.b === n - 1;
+    const first = decider ? (crypto.randomInt(2) ? d.a : d.b) : PT.opener(d, d.games.length), second = first === d.a ? d.b : d.a, pf = byPid(T, first), ps = byPid(T, second);
     const tk = [newToken(), newToken()];
     const room = makeRoom(T.game, [{ name: pf.name, uid: pf.uid, token: tk[0] }, { name: ps.name, uid: ps.uid, token: tk[1] }], { code: T.code, duelId: d.id, pids: { 1: first, 2: second } });
     if (!room) { T.note = 'busy'; return; }
     T.rooms[d.id] = room.code; T.ready[d.id] = new Set(); T.note = '';
     pf.go = { code: room.code, token: tk[0], you: 1 }; ps.go = { code: room.code, token: tk[1], you: 2 };
+    if (decider) { pf.go.coin = 1; ps.go.coin = 1; }                                  // el cliente muestra la moneda una vez
   }
   async function onUnplay(ws, msg) { const a = await auth(ws, msg); if (!a) return; const s = a.T.ready[String(msg.duel || '')]; if (s) s.delete(a.p.pid); push(a.T); }
 
