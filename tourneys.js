@@ -233,13 +233,25 @@ module.exports = function makeTourneys(ctx) {
     const tr = room.tourney; if (!tr) return;
     const T = map.get(tr.code); if (!T || !T.S) return;
     delete T.rooms[tr.duelId]; T.players.forEach((p) => { if (p.go && p.go.code === room.code) p.go = null; });
+    const tell = (more) => { room.tnext = !!more; [1, 2].forEach((s) => { const x = room.seats && room.seats[s]; if (x && x.ws) send(x.ws, { t: 'tnext', more: !!more }); }); };      // ¿el duelo sigue? entonces en la pantalla final aparece el botón de revancha
     const pid = tr.pids[winner], d = findDuel(T.S, tr.duelId);
-    if (!pid) { T.note = 'draw'; if (T.ev && T.ev.dl) T.ev.dl[tr.duelId] = Date.now() + EV_WAIT_NEXT; push(T); return; }
+    if (!pid) { tell(true); T.note = 'draw'; if (T.ev && T.ev.dl) T.ev.dl[tr.duelId] = Date.now() + EV_WAIT_NEXT; push(T); return; }
     if (d && d.status !== 'done') {
       try { T.S = PT.recordGames(T.S, d.id, d.games.concat([pid])); T.note = ''; } catch (e) { /* ya lo había resuelto el organizador */ }
       if (T.S.status === 'finished') T.status = 'finished';
     }
+    const dd = findDuel(T.S, tr.duelId); tell(!!dd && dd.status !== 'done' && T.status === 'running');
     commit(T);
+  }
+  /* Revancha desde la pantalla final de una partida de torneo: cuenta como «Jugar» de ese jugador; con los dos listos arranca la siguiente partida del duelo. */
+  function rematch(room, seat) {
+    const tr = room.tourney, T = tr && map.get(tr.code); if (!T || !T.S || T.status !== 'running') return false;
+    const d = findDuel(T.S, tr.duelId); if (!d || d.status === 'done' || d.bye || !d.a || !d.b || T.rooms[d.id]) return false;
+    const pid = tr.pids[seat]; if (!pid || (pid !== d.a && pid !== d.b)) return false;
+    const set = T.ready[d.id] || (T.ready[d.id] = new Set()), fresh = !set.has(pid); set.add(pid);
+    if (set.has(d.a) && set.has(d.b)) startGame(T, d);
+    else if (fresh) { const rv = byPid(T, d.a === pid ? d.b : d.a), me = byPid(T, pid); if (rv && rv.ws && me) send(rv.ws, { t: 'tcall', duel: d.id, from: me.name, code: T.code }); }
+    push(T); return true;
   }
   async function onForfeit(ws, msg) {
     const a = await orgOnly(ws, msg); if (!a) return; const T = a.T;
@@ -450,5 +462,5 @@ module.exports = function makeTourneys(ctx) {
     if (d) (d.games || []).forEach((w) => { if (w === tr.pids[1]) o[1]++; else if (w === tr.pids[2]) o[2]++; });
     return o;
   }
-  return { handle, onSocketClose, gameOver, sweep, map, canWatch, duelScore };
+  return { handle, onSocketClose, gameOver, rematch, sweep, map, canWatch, duelScore };
 };

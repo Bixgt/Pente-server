@@ -249,7 +249,7 @@ function createPenteServer(config) {
       titles: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? room.seats[s].title || '' : ''; }); return o; })(),
       pids: (() => { const o = {}; seatList(room).forEach((s) => { o[s] = room.seats[s] ? pidOf(room.seats[s]) : ''; }); return o; })(),
       connected: connectedMap(room), bots: botsOf(room), moves: room.moves, outs: room.outs,
-      over: room.over, rematch: room.rematch, clock: clockInfo(room),
+      over: room.over, rematch: room.rematch, tnext: !!room.tnext, clock: clockInfo(room),
       disconnectedFor: disconnectedFor(room)
     };
   }
@@ -650,8 +650,11 @@ function createPenteServer(config) {
 
   function onRematch(ws) {
     const room = inRoom(ws); if (!room) return;
-    if (room.tourney) return send(ws, { t: 'error', code: 'TN_NO_REMATCH' });      // en un torneo la revancha la decide el torneo
     if (!gameOverNow(room)) return send(ws, { t: 'error', code: 'GAME_NOT_OVER' });
+    if (room.tourney) {                                                              // en un torneo la revancha es la siguiente partida del duelo (la arma el torneo cuando los dos la piden)
+      if (!room.tnext || !tourneys.rematch(room, ws.seat)) return send(ws, { t: 'error', code: 'TN_NO_REMATCH' });
+      room.rematch[ws.seat] = true; touch(room); broadcast(room, { t: 'rematch', votes: room.rematch }); return;
+    }
     room.rematch[ws.seat] = true; touch(room);
     if (seatList(room).every((s) => room.rematch[s])) {
       // se rotan los asientos (en 2 jugadores se intercambian los lados; en 4 cada uno pasa al asiento siguiente: el equipo que movía primero pasa a mover segundo)
